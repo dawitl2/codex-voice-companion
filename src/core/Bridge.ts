@@ -13,6 +13,8 @@ export class Bridge {
   readonly events = new EventBus(); readonly store: JsonStore; readonly client: AppServerClient;
   readonly threads: ThreadManager; readonly turns: TurnManager; readonly approvals: ApprovalManager;
   authentication = 'Unverified'; plan: string | undefined; private closed = false;
+  private verifiedConnection = false;
+  get available(): boolean { return this.client.ready && this.verifiedConnection && !this.closed; }
   private readonly transport: RpcTransport;
   private readonly normalizer = new EventNormalizer();
   constructor(readonly mode: Mode, transport: RpcTransport, directory: string, sandbox: Sandbox = 'read-only', timeoutMs = 30000, approvalTimeoutMs = 60000) {
@@ -35,6 +37,7 @@ export class Bridge {
       catch { this.client.rejectRequest(call.id, 'Unsafe or invalid approval association'); }
     };
     this.client.onDisconnected = reason => {
+      this.verifiedConnection = false;
       this.authentication = 'Unverified'; this.approvals.disconnected(); this.threads.disconnected(); this.turns.disconnected(); emit('bridge.disconnected', reason);
     };
     transport.onDiagnostic(text => { emit('codex.error', `App-server diagnostic: ${sanitize(text, 1000)}`); });
@@ -43,7 +46,7 @@ export class Bridge {
     if (this.closed) throw new Error('Bridge is closed');
     if (this.client.ready) return;
     await this.client.connect();
-    try { await this.verifyAccount(); await this.verifyConfiguration(); this.record('bridge.connected', this.mode === 'mock' ? 'OFFLINE MOCK connected; no real Codex inference' : `Codex connected with ChatGPT (${this.plan})`); }
+    try { await this.verifyAccount(); await this.verifyConfiguration(); this.verifiedConnection = true; this.record('bridge.connected', this.mode === 'mock' ? 'OFFLINE MOCK connected; no real Codex inference' : `Codex connected with ChatGPT (${this.plan})`); }
     catch (error) { await this.client.close(); throw error; }
   }
   async verifyAccount(): Promise<void> {

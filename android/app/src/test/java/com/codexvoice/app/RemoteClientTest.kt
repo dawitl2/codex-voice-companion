@@ -42,6 +42,14 @@ private fun credential() = Credential(endpoint, UUID.randomUUID().toString(), "A
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RemoteClientTest {
+    @Test fun failedHelloSendRemainsRecoverableAndRepeatedForegroundDoesNotOpenAnotherSocket() = runTest {
+        val sockets = FakeSockets(); val client = RemoteClient(backgroundScope, sockets, MemoryCredentials(credential()), jitter = { .5 })
+        client.foreground(true); runCurrent(); client.foreground(true); runCurrent()
+        assertEquals(1, sockets.sessions.size)
+        sockets.sessions.last().closed = true; sockets.openLatest(); runCurrent()
+        assertEquals(RemoteStatus.RECONNECTING, client.state.value.status)
+        advanceTimeBy(1000); runCurrent(); assertEquals(2, sockets.sessions.size)
+    }
     @Test fun validatesPrivateEndpointAndRejectsTokenUrlsOrCleartext() {
         assertEquals(endpoint, RemoteProtocol.endpoint(endpoint))
         for (url in listOf("ws://test.example.ts.net/remote", "wss://public.example/remote", "$endpoint?token=x", "wss://user@test.example.ts.net/remote", "wss://test.example.ts.net:8080/remote")) {
@@ -131,5 +139,35 @@ class RemoteClientTest {
         val sockets = FakeSockets(); val client = RemoteClient(backgroundScope, sockets, MemoryCredentials(credential()))
         client.foreground(true); runCurrent(); sockets.response("state.snapshot", snapshotFixture(), null); runCurrent()
         assertEquals(RemoteStatus.PROTOCOL_INCOMPATIBLE, client.state.value.status); assertNull(client.state.value.snapshot)
+    }
+    @Test fun unavailableBridgeAndRestartedEpochAreRepresentedAfterReauthentication() = runTest {
+        val c = credential(); val sockets = FakeSockets(); val client = RemoteClient(backgroundScope, sockets, MemoryCredentials(c), jitter = { .5 })
+        suspend fun authenticate() {
+            sockets.openLatest(); runCurrent(); sockets.response("server.hello", mapOf("bridgeName" to "PC")); runCurrent()
+            sockets.response("auth.success", mapOf("deviceId" to c.deviceId, "bridgeName" to "PC")); runCurrent()
+        }
+        client.foreground(true); runCurrent(); authenticate()
+        sockets.response("state.snapshot", snapshotFixture(10, "old-epoch", false)); runCurrent()
+        assertEquals(RemoteStatus.BRIDGE_UNAVAILABLE, client.state.value.status)
+        sockets.sessions.last().observer.failed("unreachable"); runCurrent(); advanceTimeBy(1000); runCurrent(); authenticate()
+        sockets.response("state.snapshot", snapshotFixture(0, "new-epoch")); runCurrent()
+        assertEquals("new-epoch", client.state.value.snapshot!!.epoch); assertEquals(RemoteStatus.CONNECTED, client.state.value.status)
+        sockets.response("state.snapshot", snapshotFixture(0, "unexpected-epoch")); runCurrent()
+        assertEquals(RemoteStatus.PROTOCOL_INCOMPATIBLE, client.state.value.status)
+    }
+    @Test fun repeatedNetworkFailuresExhaustBoundedRetries() = runTest {
+        val sockets = FakeSockets(); val client = RemoteClient(backgroundScope, sockets, MemoryCredentials(credential()), jitter = { .5 })
+        client.foreground(true); runCurrent()
+        for (attempt in 0..5) { sockets.sessions.last().observer.failed("unreachable"); runCurrent(); advanceTimeBy(1000L shl attempt); runCurrent() }
+        sockets.sessions.last().observer.failed("unreachable"); runCurrent(); advanceTimeBy(120000); runCurrent()
+        assertEquals(7, sockets.sessions.size); assertEquals(RemoteStatus.DISCONNECTED, client.state.value.status)
+    }
+    @Test fun unreadableCredentialsFailClosed() = runTest {
+        val sockets = FakeSockets(); val client = RemoteClient(backgroundScope, sockets, object : CredentialStore {
+            override fun load(): Credential? = error("invalid cipher")
+            override fun save(credential: Credential) = Unit
+            override fun clear() = Unit
+        })
+        client.foreground(true); runCurrent(); assertEquals(RemoteStatus.STORAGE_ERROR, client.state.value.status); assertEquals(0, sockets.sessions.size)
     }
 }

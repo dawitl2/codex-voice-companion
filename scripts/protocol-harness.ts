@@ -1,6 +1,6 @@
 // Offline fixture only. Simulated Serve headers are not private-route verification.
-import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { mkdirSync, mkdtempSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { resolve, join, dirname } from 'node:path';
 import { Bridge } from '../src/core/Bridge.js';
 import { MockTransport } from '../src/core/MockTransport.js';
 import { RemoteServer } from '../src/remote/RemoteServer.js';
@@ -11,12 +11,16 @@ const metadata = join(directory, 'fixture.json'), control = join(directory, 'con
 if (existsSync(metadata)) rmSync(metadata); if (existsSync(control)) rmSync(control);
 let data: unknown = [];
 const registry = new DeviceRegistry({ load: () => data, save: value => { data = structuredClone(value); } });
-const bridge = new Bridge('mock', new MockTransport(undefined, 15), join(directory, 'state'));
+// Each invocation has a fresh history; prior fixture runs must not count as live events.
+const stateDirectory = mkdtempSync(join(directory, 'state-'));
+if (dirname(resolve(stateDirectory)) !== directory) throw new Error('Fixture state must remain in its runtime directory');
+const bridge = new Bridge('mock', new MockTransport(undefined, 15), stateDirectory);
 const remote = new RemoteServer(bridge, registry, 'wss://test.example.ts.net/remote', 0);
 let started = false, closing = false;
 async function close() {
   if (closing) return; closing = true; clearInterval(poll);
   await remote.close(); await bridge.close();
+  rmSync(stateDirectory, { recursive: true });
   if (existsSync(metadata)) rmSync(metadata); if (existsSync(control)) rmSync(control);
 }
 await bridge.connect(); await remote.start(); const threadId = await bridge.create(directory, 'Protocol fixture');

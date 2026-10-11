@@ -26,6 +26,7 @@ export class RemoteServer {
   private readonly sockets = new WebSocketServer({ noServer: true, maxPayload: CLIENT_LIMIT, perMessageDeflate: false });
   private heartbeat: NodeJS.Timeout | undefined; private pendingPublish: NodeJS.Timeout | undefined;
   private closing = false; private listening = false;
+  private readonly pendingTypes = new Set<string>();
   readonly endpoint: URL;
   constructor(private readonly bridge: Bridge, private readonly access: RemoteAccess,
     endpoint: string, private readonly port = 8787, private readonly handshakeMs = 15000, private readonly heartbeatMs = 20000) {
@@ -67,9 +68,9 @@ export class RemoteServer {
   get connectedDevices(): number { return [...this.sessions].filter(s => s.deviceId).length; }
   snapshot(): Snapshot {
     const state = this.bridge.store.state;
-    const threads = state.threads.slice(-50).map(t => ({ id: t.id, label: sanitize(t.label, 80), project: sanitize(basename(t.cwd), 80), status: t.status }));
+    const threads = state.threads.slice(-50).map(t => ({ id: t.id, label: sanitize(t.label, 80) || 'Managed conversation', project: sanitize(basename(t.cwd), 80) || 'Project root', status: t.status }));
     const ids = new Set(threads.map(t => t.id));
-    return { epoch: this.epoch, sequence: this.sequence, bridgeName: sanitize(hostname(), 80), available: this.bridge.client.ready,
+    return { epoch: this.epoch, sequence: this.sequence, bridgeName: sanitize(hostname(), 80), available: this.bridge.available,
       mode: this.bridge.mode, selectedThreadId: ids.has(this.bridge.threads.activeId ?? '') ? this.bridge.threads.activeId! : null,
       threads, turns: state.turns.filter(t => ids.has(t.threadId)).slice(-100).map(t => ({ id: t.id, threadId: t.threadId, status: t.status, startedAt: t.startedAt, finishedAt: t.finishedAt ?? null })),
       history: state.events.slice(-100).map(e => ({ id: e.id, type: e.type, timestamp: e.timestamp,
@@ -88,12 +89,14 @@ export class RemoteServer {
   publish(type = 'state.snapshot'): void {
     if (this.closing) return;
     this.sequence++;
+    this.pendingTypes.add(['turn.progress','turn.completed','turn.failed','turn.interrupted'].includes(type) ? type : type === 'approval.requested' ? 'approval.pending' : 'state.snapshot');
     // Defer until the originating bridge notification has finished updating state.
     if (this.pendingPublish) clearTimeout(this.pendingPublish);
     this.pendingPublish = setTimeout(() => {
       this.pendingPublish = undefined;
-      const messageType = ['turn.progress','turn.completed','turn.failed','turn.interrupted'].includes(type) ? type : type === 'approval.requested' ? 'approval.pending' : 'state.snapshot';
-      for (const s of this.sessions) if (s.deviceId) this.send(s, messageType, this.snapshot());
+      const snapshot = this.snapshot();
+      for (const messageType of this.pendingTypes) for (const s of this.sessions) if (s.deviceId) this.send(s, messageType, snapshot);
+      this.pendingTypes.clear();
     }, 0);
   }
   revoke(deviceId: string): void {

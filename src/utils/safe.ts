@@ -3,6 +3,7 @@ export function sanitize(value: unknown, max = 4000): string {
     .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '')
     .replace(/-----BEGIN [\s\S]*?-----END [^-]+-----/g, '[REDACTED KEY]')
     .replace(/\b(?:sk-[\w-]{8,}|eyJ[\w-]{12,}\.[\w-]+\.[\w-]+)\b/g, '[REDACTED]')
+    .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b/g, '[REDACTED]')
     .replace(/((?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|authorization)\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi, '$1[REDACTED]')
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').slice(0, max);
 }

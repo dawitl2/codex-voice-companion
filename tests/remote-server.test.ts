@@ -65,3 +65,22 @@ test('handshake times out and revocation terminates authenticated sockets', asyn
   const c = await client(remote); c.send('client.hello', { name: 'Fixture' }); await c.wait('server.hello'); c.send('auth.request', { deviceId, token }); await c.wait('auth.success');
   const closed = once(c.ws, 'close'); remote.revoke(deviceId); assert.equal((await closed)[0], 4003);
 });
+test('duplicate publications do not advance cursors and late clients receive bounded current state', async t => {
+  const { bridge, remote, dir } = await fixture(t); await bridge.create(dir, 'Deduplicated');
+  const sequence = remote.snapshot().sequence; const event = bridge.history().at(-1)!;
+  bridge.events.emit(event); bridge.events.emit(event); assert.equal(remote.snapshot().sequence, sequence);
+  assert.equal(remote.snapshot().historyComplete, false);
+});
+test('bad authentication and malformed frames produce fixed errors without revealing state', async t => {
+  const { remote, deviceId } = await fixture(t); const c = await client(remote);
+  c.send('client.hello', { name: 'Fixture' }); await c.wait('server.hello'); c.send('auth.request', { deviceId, token: 'A'.repeat(43) });
+  assert.equal((await c.wait('auth.failed')).payload.code, 'invalid_credentials');
+  assert.equal(c.inbox.some(x => x.type === 'state.snapshot'), false);
+  const d = await client(remote); d.ws.send('not-json-private-value');
+  const error = await d.wait('protocol.error'); assert.equal(error.payload.code, 'invalid_message'); assert.equal(JSON.stringify(error).includes('private-value'), false);
+});
+test('shutdown closes clients and unsubscribes without forwarding new bridge events', async t => {
+  const { bridge, remote, dir } = await fixture(t); const c = await client(remote); const closed = once(c.ws, 'close');
+  await remote.close(); await closed; const sequence = remote.snapshot().sequence;
+  await bridge.create(dir, 'After remote close'); assert.equal(remote.snapshot().sequence, sequence);
+});

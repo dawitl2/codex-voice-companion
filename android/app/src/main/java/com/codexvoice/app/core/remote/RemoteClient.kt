@@ -14,22 +14,31 @@ fun reconnectDelay(attempt: Int, jitter: Double): Long? = if (attempt !in 0..5) 
 class RemoteClient(private val scope: CoroutineScope, private val sockets: SocketFactory, private val store: CredentialStore,
     private val now: () -> Long = System::currentTimeMillis, private val jitter: () -> Double = { Random.nextDouble() }) {
     private val mutableState = MutableStateFlow(ClientState()); val state = mutableState.asStateFlow()
-    private val queue = Channel<() -> Unit>(Channel.UNLIMITED)
+    private val queue = Channel<() -> Unit>(64)
+    @Volatile private var closed = false
     private var credential: Credential? = null; private var socket: RemoteSocket? = null; private var generation = 0
     private var timeout: Job? = null; private var retry: Job? = null; private var heartbeat: Job? = null
     private var attempts = 0; private var foreground = false; private var desired = false; private var authenticated = false
     private var invitation: String? = null; private var helloId: String? = null; private var authId: String? = null; private var snapshotId: String? = null
     private var sessionEpoch: String? = null
     init {
-        scope.launch { for (action in queue) action() }
+        scope.launch { for (action in queue) if (!closed) action() }
         post {
             try { credential = store.load(); credential?.let { mutableState.value = ClientState(RemoteStatus.DISCONNECTED, it.endpoint, it.bridgeName, true, it.lastConnected, enabled = it.enabled) } }
             catch (_: Exception) { mutableState.value = ClientState(status = RemoteStatus.STORAGE_ERROR, problem = "Protected pairing data is unavailable. Forget this PC and pair again.") }
         }
     }
-    private fun post(action: () -> Unit) { queue.trySend(action) }
+    private fun post(action: () -> Unit) {
+        if (closed) return
+        if (queue.trySend(action).isFailure) {
+            closed = true; socket?.close(); timeout?.cancel(); retry?.cancel(); heartbeat?.cancel(); queue.close()
+            mutableState.value = state.value.copy(status = RemoteStatus.PROTOCOL_INCOMPATIBLE, problem = "Too many queued connection messages. Restart the app to reconnect.")
+        }
+    }
     fun foreground(active: Boolean) = post {
+        val changed = foreground != active
         foreground = active
+        if (active && !changed) return@post
         if (!active) { stopSocket(); if (credential != null) update(RemoteStatus.DISCONNECTED, "App paused; displayed history may be stale.") }
         else if (credential?.enabled == true && !desired) { desired = true; attempts = 0; open() }
         else if (desired && credential != null) { attempts = 0; open() }
@@ -59,7 +68,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         catch (_: Exception) { update(RemoteStatus.STORAGE_ERROR, "Could not remove protected pairing data.") }
     }
     fun refresh() = post { if (authenticated) requestSnapshot() }
-    fun close() { desired = false; generation++; socket?.close(); timeout?.cancel(); retry?.cancel(); heartbeat?.cancel(); queue.close() }
+    fun close() { closed = true; desired = false; generation++; socket?.close(); timeout?.cancel(); retry?.cancel(); heartbeat?.cancel(); queue.close() }
     private fun update(status: RemoteStatus, problem: String = "") {
         mutableState.value = mutableState.value.copy(status = status, problem = problem, paired = credential != null, enabled = credential?.enabled == true)
     }
@@ -73,8 +82,16 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         update(if (attempts == 0) RemoteStatus.CONNECTING else RemoteStatus.RECONNECTING)
         try {
             socket = sockets.open(mutableState.value.endpoint, object : SocketObserver {
-                override fun opened() = post { if (attemptGeneration == generation) { helloId = send("client.hello", mapOf("name" to "Codex Voice Android")); deadline(attemptGeneration) } }
-                override fun message(text: String) = post { if (attemptGeneration == generation) receive(text) }
+                override fun opened() = post {
+                    if (attemptGeneration == generation) {
+                        try { helloId = send("client.hello", mapOf("name" to "Codex Voice Android")); deadline(attemptGeneration) }
+                        catch (_: Exception) { fail("unreachable") }
+                    }
+                }
+                override fun message(text: String) {
+                    if (text.length > 262144) { failed("invalid_message"); return }
+                    post { if (attemptGeneration == generation) receive(text) }
+                }
                 override fun failed(reason: String) = post { if (attemptGeneration == generation) fail(reason) }
             })
             deadline(attemptGeneration)
@@ -96,7 +113,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
             val m = RemoteProtocol.parse(raw)
             when (m.type) {
                 "server.hello" -> {
-                    check(!authenticated && m.correlationId == helloId && authId == null)
+                    check(!authenticated && helloId != null && m.correlationId == helloId && authId == null)
                     update(if (invitation == null) RemoteStatus.AUTHENTICATING else RemoteStatus.PAIRING)
                     authId = if (invitation != null) send("pair.request", mapOf("code" to invitation!!)) else {
                         val c = checkNotNull(credential); send("auth.request", mapOf("deviceId" to c.deviceId, "token" to c.token))
@@ -136,7 +153,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
                     }
                     mutableState.value = state.value.copy(snapshot = incoming, lastConnected = connectedAt,
                         status = if (incoming.available) RemoteStatus.CONNECTED else RemoteStatus.BRIDGE_UNAVAILABLE, problem = if (incoming.available) "" else "The PC monitor is reachable; Codex is unavailable.", paired = true, enabled = true)
-                    if (heartbeat?.isActive != true) heartbeat = scope.launch { while (isActive) { delay(20000); post { if (authenticated) requestSnapshot() } } }
+                    if (!closed && heartbeat?.isActive != true) heartbeat = scope.launch { while (isActive) { delay(20000); post { if (authenticated) requestSnapshot() } } }
                 }
             }
         } catch (e: RemoteProtocolException) { fail(e.reason) } catch (_: Exception) { fail("invalid_message") }
@@ -158,6 +175,8 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         "pairing_expired" -> "The invitation expired or was already used. Request a new code on the PC."
         "incorrect_code" -> "Pairing code did not match. Check the invitation on the PC."
         "rate_limited" -> "Too many attempts. Wait one minute before reconnecting."
+        "device_limit" -> "Revoke the existing paired device on the PC before pairing another."
+        "storage_unavailable" -> "The PC could not save the device securely. Check the PC bridge before pairing again."
         "tls_failure" -> "Secure certificate verification failed. Check the private server address."
         "incompatible_version" -> "Phone and bridge protocol versions differ. Update both."
         else -> "The bridge returned an incompatible or invalid message. Check versions on the PC."
