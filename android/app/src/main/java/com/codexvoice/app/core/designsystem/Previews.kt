@@ -1,6 +1,10 @@
 package com.codexvoice.app.core.designsystem
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.material3.Surface
 import androidx.compose.ui.tooling.preview.Preview
 import com.codexvoice.app.core.model.ThemeMode
 import com.codexvoice.app.feature.dashboard.DashboardScreen
@@ -17,8 +21,12 @@ private fun LargeTextDashboardPreview() = DashboardPreview(ThemeMode.LIGHT)
 
 @Composable
 private fun DashboardPreview(mode: ThemeMode) {
-    val repository = DemoTaskRepository()
+    val repository = remember { DemoTaskRepository() }
+    val current by repository.current.collectAsState()
+    val history by repository.history.collectAsState()
     CodexVoiceTheme(mode) {
-        DashboardScreen(DashboardState(repository.current.value, repository.history.value), true, {}, {})
+        Surface {
+            DashboardScreen(DashboardState(current, history), true, {}, {})
+        }
     }
 }

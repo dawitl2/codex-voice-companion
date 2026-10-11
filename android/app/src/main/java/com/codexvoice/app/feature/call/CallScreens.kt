@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -94,7 +95,7 @@ fun ActiveCallScreen(session: CallSession, onMute: () -> Unit, onHangUp: () -> U
                         Text(if (session.demoMuted) "Demo muted" else "Demo mute", style = MaterialTheme.typography.labelLarge)
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        FilledTonalIconButton({}, enabled = false) { Icon(Icons.Default.VolumeUp, "Speaker unavailable") }
+                        FilledTonalIconButton({}, enabled = false) { Icon(Icons.AutoMirrored.Filled.VolumeUp, "Speaker unavailable") }
                         Text("Speaker · later", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
