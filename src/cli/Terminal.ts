@@ -2,6 +2,8 @@ import { createInterface } from 'node:readline';
 import { Bridge } from '../core/Bridge.js';
 import { errorText, sanitize } from '../utils/safe.js';
 import { summarize } from '../core/SummaryFormatter.js';
+import type { RemoteServer } from '../remote/RemoteServer.js';
+import type { DeviceRegistry } from '../remote/DeviceRegistry.js';
 
 export const HELP = `Codex Voice Bridge — local terminal commands
 status                       Connection, auth, selected thread and active turn
@@ -17,12 +19,15 @@ approve <approval-id>         Explicit one-action approval
 decline <approval-id>         Reject one action
 stop                         Request interruption of selected active turn
 reconnect                    Restart only the transport; select/resume before send
+pair-device                  Issue one two-minute invitation (--remote required)
+devices                      List paired devices (no credentials)
+revoke-device <device-id>     Revoke and disconnect a paired device
 help                         Show this help
 exit                         Cancel pending approvals and shut down
 Mock fixtures: send [mock:fail], [mock:approval], [mock:wait], [mock:crash], [mock:duplicate]
 This manages companion conversations; it does not attach to live VS Code sessions.`;
 
-export async function runTerminal(bridge: Bridge): Promise<void> {
+export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices?: DeviceRegistry): Promise<void> {
   console.log(`Codex Voice Bridge 0.1.0 | ${bridge.mode.toUpperCase()} | Node ${process.versions.node}`);
   console.log(HELP);
   let watching = true;
@@ -65,9 +70,17 @@ export async function runTerminal(bridge: Bridge): Promise<void> {
       case 'approve': bridge.approvals.resolve(rest, true); break;
       case 'decline': bridge.approvals.resolve(rest, false); break;
       case 'reconnect': await bridge.client.close(); await bridge.connect(); console.log('Transport connected; explicitly select a thread to resume'); break;
+      case 'pair-device': {
+        if (!remote || !devices) throw new Error('Start with --remote and a private WSS endpoint first');
+        const invitation = devices.beginPairing();
+        console.log(`Private address: ${remote.endpoint.href}\nOne-time pairing code: ${invitation.code}\nExpires: ${invitation.expiresAt}. Enter only in your Android app; do not share or log this invitation.`); break;
+      }
+      case 'devices': if (!devices) throw new Error('Remote monitoring is not enabled'); console.table(devices.list()); break;
+      case 'revoke-device': if (!remote || !devices) throw new Error('Remote monitoring is not enabled'); devices.revoke(rest); remote.revoke(rest); console.log('Device revoked'); break;
       case 'exit': shutdown(); break;
       default: throw new Error('Unknown command; type help');
     }
+    remote?.publish();
   };
   await new Promise<void>(resolve => {
     terminal.on('line', line => { chain = chain.then(() => command(line)).catch(error => console.error(errorText(error))).then(() => { if (!exiting) terminal.prompt(); }); });

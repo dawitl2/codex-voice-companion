@@ -2,6 +2,7 @@ import { closeSync, copyFileSync, existsSync, fsyncSync, mkdirSync, openSync, re
 import { join } from 'node:path';
 import type { Mode, StoredState } from '../types/index.js';
 import { identifier, object } from '../utils/safe.js';
+import { atomicReplace } from './atomicReplace.js';
 
 export class JsonStore {
   readonly state: StoredState;
@@ -68,7 +69,7 @@ export class JsonStore {
     const fd = openSync(temp, 'w', 0o600);
     try { writeFileSync(fd, JSON.stringify(this.state, null, 2)); fsyncSync(fd); } finally { closeSync(fd); }
     if (existsSync(this.file)) copyFileSync(this.file, this.file + '.bak');
-    renameSync(temp, this.file);
+    atomicReplace(temp, this.file);
   }
   close(): void { if (!this.closed) { this.save(); this.closed = true; unlinkSync(this.lock); } }
 }
