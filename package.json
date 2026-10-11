@@ -17,10 +17,12 @@
     "check:connection": "npm run build && node dist/scripts/connection-check.js"
   },
   "dependencies": {
-    "smol-toml": "1.9.1"
+    "smol-toml": "1.9.1",
+    "ws": "8.22.0"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
+    "@types/ws": "8.18.2",
     "typescript": "7.0.2"
   }
 }
