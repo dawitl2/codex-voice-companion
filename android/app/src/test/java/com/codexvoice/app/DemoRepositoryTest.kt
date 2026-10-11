@@ -44,7 +44,7 @@ class DemoRepositoryTest {
     }
     @Test fun emptyHistoryAndAllStatusLabelsSupported() {
         assertTrue(sortedHistory(emptyList()).isEmpty())
-        assertEquals(5, TaskStatus.entries.map { it.label() }.distinct().size)
+        assertEquals(TaskStatus.entries.size, TaskStatus.entries.map { it.label() }.distinct().size)
     }
 }
 

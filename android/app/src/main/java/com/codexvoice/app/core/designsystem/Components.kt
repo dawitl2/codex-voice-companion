@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -46,6 +47,7 @@ fun TaskCard(task: Task, reduceMotion: Boolean = false) {
         TaskStatus.FAILED -> Icons.Default.ErrorOutline
         TaskStatus.INTERRUPTED -> Icons.Default.PauseCircleOutline
         TaskStatus.AWAITING_APPROVAL -> Icons.Default.Lock
+        TaskStatus.UNKNOWN -> Icons.AutoMirrored.Filled.HelpOutline
     }
     Card(onClick = { expanded = !expanded }, shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
@@ -59,7 +61,8 @@ fun TaskCard(task: Task, reduceMotion: Boolean = false) {
             Text(formattedTime(task.updatedAt) + (task.durationSeconds?.let { " · ${durationLabel(it)}" } ?: ""),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (expanded) Text(task.summary, style = MaterialTheme.typography.bodyMedium)
-            Text(if (expanded) "Hide sample details" else "View sample details", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+            val details = if (task.simulated) "sample details" else "details"
+            Text(if (expanded) "Hide $details" else "View $details", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
         }
     }
 }

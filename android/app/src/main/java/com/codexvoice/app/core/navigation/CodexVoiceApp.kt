@@ -16,6 +16,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.navigation.compose.*
 import com.codexvoice.app.core.designsystem.CodexVoiceTheme
 import com.codexvoice.app.feature.call.*
@@ -35,6 +38,16 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val reduceMotion = prefs.reduceMotion || !ValueAnimator.areAnimatorsEnabled()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel, dashboard.demoMode) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_START) viewModel.foreground(true)
+            if (event == Lifecycle.Event.ON_STOP) viewModel.foreground(false)
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        viewModel.foreground(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); viewModel.foreground(false) }
+    }
     val navigate: (String) -> Unit = { route -> nav.navigate(route) {
         popUpTo(nav.graph.startDestinationId) { saveState = true }
         launchSingleTop = true
@@ -71,9 +84,10 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding),
                     enterTransition = { fadeIn(tween(if (reduceMotion) 0 else 180)) },
                     exitTransition = { fadeOut(tween(if (reduceMotion) 0 else 120)) }) {
-                    composable("home") { DashboardScreen(dashboard, reduceMotion, viewModel::previewCall) { navigate("history") } }
-                    composable("history") { HistoryScreen(dashboard.history, reduceMotion, viewModel::clearHistory, viewModel::resetDemo) }
-                    composable("settings") { SettingsScreen(prefs, viewModel::setTheme, viewModel::setCalling, viewModel::setReduceMotion) }
+                    composable("home") { DashboardScreen(dashboard, reduceMotion, viewModel::previewCall, { navigate("history") }, { navigate("settings") }) }
+                    composable("history") { HistoryScreen(dashboard.history, reduceMotion, viewModel::clearHistory, viewModel::resetDemo, dashboard.demoMode, dashboard.connection, dashboard.remote?.snapshot?.mode == "mock") }
+                    composable("settings") { SettingsScreen(prefs, viewModel::setTheme, viewModel::setCalling, viewModel::setReduceMotion,
+                        dashboard.remote, dashboard.demoMode, viewModel::selectDemo, viewModel::pair, viewModel::connectPc, viewModel::disconnectPc, viewModel::forgetPc) }
                 }
             }
         }

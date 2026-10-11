@@ -12,10 +12,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.codexvoice.app.core.designsystem.*
 import com.codexvoice.app.core.model.*
+import com.codexvoice.app.core.remote.ClientState
 
 @Composable
 fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
-    onCalling: (Boolean, Boolean, Boolean) -> Unit, onMotion: (Boolean) -> Unit) {
+    onCalling: (Boolean, Boolean, Boolean) -> Unit, onMotion: (Boolean) -> Unit,
+    remote: ClientState? = null, demoMode: Boolean = true, onDemo: (Boolean) -> Unit = {},
+    onPair: (String, String) -> Unit = { _, _ -> }, onConnect: () -> Unit = {}, onDisconnect: () -> Unit = {}, onForget: () -> Unit = {}) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { ScreenHeading("Settings", "Make room for your preferences.") }
         item { Eyebrow("Appearance") }
@@ -34,9 +37,7 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
         item { Eyebrow("Connection") }
         item {
             SettingsSurface {
-                Text("Offline demo", style = MaterialTheme.typography.titleMedium)
-                Text("No PC bridge is connected.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                OutlinedButton({}, enabled = false, modifier = Modifier.fillMaxWidth()) { Text("Pair a PC · Step 4") }
+                ConnectionPanel(remote, demoMode, onDemo, onPair, onConnect, onDisconnect, onForget)
                 Text("This device: Android ${android.os.Build.VERSION.RELEASE}", style = MaterialTheme.typography.bodyMedium)
             }
         }
@@ -60,8 +61,8 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
         item {
             SettingsSurface {
                 Text("Codex Voice", style = MaterialTheme.typography.titleMedium)
-                Text("Version 0.3.0 · Experimental foundation")
-                Text("A personal remote interface for the Codex Voice Bridge. Step 3 is an offline demonstration.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Version 0.4.0 · Experimental companion")
+                Text("A private task monitor for your PC bridge, with a separate offline demo. Calling and audio are previews only.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

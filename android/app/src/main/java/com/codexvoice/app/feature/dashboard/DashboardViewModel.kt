@@ -8,25 +8,31 @@ import com.codexvoice.app.feature.call.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.IOException
+import com.codexvoice.app.core.remote.ClientState
 
 data class DashboardState(
     val current: Task? = null, val history: List<Task> = emptyList(),
     val connection: ConnectionStatus = ConnectionStatus.DEMO,
+    val remote: ClientState? = null, val demoMode: Boolean = true,
 )
 class DashboardViewModel(
     private val tasks: TaskRepository,
     private val settings: PreferencesRepository,
     private val calls: CallStateMachine = CallStateMachine(),
 ) : ViewModel() {
-    val dashboard = combine(tasks.current, tasks.history, tasks.connection) { task, history, connection ->
+    private val basicDashboard = combine(tasks.current, tasks.history, tasks.connection) { task, history, connection ->
         DashboardState(task, sortedHistory(history), connection)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardState())
+    }
+    val dashboard = (if (tasks is CompanionTaskRepository) tasks.data.map { data ->
+        DashboardState(data.current, sortedHistory(data.history), data.connection, data.remote, data.demo)
+    } else basicDashboard).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardState(demoMode = tasks !is CompanionTaskRepository))
     val preferences = settings.preferences.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), UserPreferences())
     private val mutableCall = MutableStateFlow(calls.snapshot)
     val call = mutableCall.asStateFlow()
     private val mutableError = MutableStateFlow<String?>(null)
     val error = mutableError.asStateFlow()
     fun previewCall(reason: CallReason) {
+        if (tasks is CompanionTaskRepository && !tasks.isDemo.value) return
         if (calls.snapshot.state != CallState.IDLE) return
         val task = tasks.completeDemoTask(reason)
         calls.incoming(task, reason)
@@ -38,6 +44,14 @@ class DashboardViewModel(
     fun toggleMute() { calls.toggleMute(); mutableCall.value = calls.snapshot }
     fun clearHistory() = tasks.clearHistory()
     fun resetDemo() = tasks.resetDemo()
+    fun selectDemo(value: Boolean) = save { (tasks as? CompanionTaskRepository)?.selectDemo(value) }
+    fun foreground(active: Boolean) { (tasks as? CompanionTaskRepository)?.foreground(active) }
+    fun pair(address: String, code: String) { (tasks as? CompanionTaskRepository)?.pair(address, code) }
+    fun connectPc() { (tasks as? CompanionTaskRepository)?.connect() }
+    fun disconnectPc() { (tasks as? CompanionTaskRepository)?.disconnect() }
+    fun forgetPc() { (tasks as? CompanionTaskRepository)?.forget() }
+    fun refreshPc() { (tasks as? CompanionTaskRepository)?.refresh() }
+    override fun onCleared() { (tasks as? CompanionTaskRepository)?.close(); super.onCleared() }
     fun setTheme(mode: ThemeMode) = save { settings.setTheme(mode) }
     fun setCalling(completion: Boolean, failure: Boolean, approval: Boolean) =
         save { settings.setCalling(completion, failure, approval) }
