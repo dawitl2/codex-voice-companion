@@ -1,0 +1,26 @@
+{
+  "name": "codex-voice-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Windows controller for companion-managed Codex app-server threads",
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "dev": "npm run build && node dist/src/index.js",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc",
+    "test": "npm run build && node --test dist/tests/*.test.js",
+    "start": "node dist/src/index.js",
+    "test:real": "npm run build && node dist/scripts/real-test.js",
+    "check:connection": "npm run build && node dist/scripts/connection-check.js"
+  },
+  "dependencies": {
+    "smol-toml": "1.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}
