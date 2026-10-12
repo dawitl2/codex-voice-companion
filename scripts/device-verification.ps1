@@ -1,4 +1,4 @@
-param([switch]$MobileData, [switch]$Ui, [switch]$RealSnapshot)
+param([switch]$MobileData, [switch]$Ui, [switch]$RealSnapshot, [switch]$Notifications, [switch]$ProcessAbsent)
 $ErrorActionPreference = 'Stop'
 $deviceRoot = Split-Path $PSScriptRoot -Parent
 $tsExe = 'C:\Program Files\Tailscale\tailscale.exe'
@@ -6,9 +6,23 @@ $adbExe = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
 $previousRemote = $env:CODEX_VOICE_REMOTE_URL
 $previousJava = $env:JAVA_HOME
 $previousDeviceReal = $env:CODEX_VOICE_DEVICE_REAL
+$previousDevicePush = $env:CODEX_VOICE_DEVICE_PUSH
+$previousFirebaseProject = $env:CODEX_VOICE_FIREBASE_PROJECT_ID
+$previousFirebaseCredentials = $env:GOOGLE_APPLICATION_CREDENTIALS
+$previousSparkConfirmation = $env:CODEX_VOICE_FIREBASE_SPARK_CONFIRMED
 $fixtureProcess = $null; $instrumentProcess = $null; $routeChanged = $false
 Push-Location -LiteralPath $deviceRoot
 try {
+  if ($Notifications -and ($Ui -or $RealSnapshot)) { throw 'Notification fixture is separate from UI/real-history fixtures' }
+  if ($ProcessAbsent -and -not $Notifications) { throw '-ProcessAbsent requires -Notifications' }
+  if ($Notifications) {
+    $configuration = Get-Content -LiteralPath 'android/app/google-services.json' -Raw | ConvertFrom-Json
+    $env:CODEX_VOICE_FIREBASE_PROJECT_ID = $configuration.project_info.project_id
+    $env:GOOGLE_APPLICATION_CREDENTIALS = "$env:USERPROFILE\.codex-voice\firebase\service-account.json"
+    # This test flag requires the user's prior explicit Spark/no-billing confirmation.
+    if ($env:CODEX_VOICE_FIREBASE_SPARK_CONFIRMED -ne '1') { throw 'Confirm Spark with billing unlinked before enabling physical FCM tests' }
+    & .\scripts\protect-firebase-credentials.ps1
+  }
   $devices = @(& $adbExe devices | Where-Object { $_ -match '^\S+\s+device$' })
   if ($devices.Count -ne 1) { throw 'Exactly one authorized Android device required' }
   $serial = ($devices[0] -split '\s+')[0]
@@ -30,16 +44,25 @@ try {
   $env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
   & .\android\gradlew.bat -p android :app:assembleDebug :app:assembleDebugAndroidTest --offline --console=plain
   if ($LASTEXITCODE -ne 0) { throw 'Android build failed' }
-  & $adbExe -s $serial install -r android/app/build/outputs/apk/debug/app-debug.apk
-  if ($LASTEXITCODE -ne 0) { throw 'App installation failed' }
-  & $adbExe -s $serial install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-  if ($LASTEXITCODE -ne 0) { throw 'Test installation failed' }
+  function Install-VerifiedArtifact([string]$Package, [string]$Apk) {
+    $packagePath = ((& $adbExe -s $serial shell pm path $Package | Select-Object -First 1) -replace '^package:', '').Trim()
+    $localHash = (Get-FileHash -LiteralPath $Apk -Algorithm SHA256).Hash
+    if ($packagePath -match '^/data/app/[A-Za-z0-9_~+/.=-]+/base\.apk$') {
+      $installedHash = ((& $adbExe -s $serial shell sha256sum $packagePath) -split '\s+')[0]
+      if ($installedHash -eq $localHash) { Write-Output "Installed $Package APK already matches the verified build."; return }
+    }
+    & $adbExe -s $serial install -r $Apk
+    if ($LASTEXITCODE -ne 0) { throw 'Fixture APK installation failed' }
+  }
+  Install-VerifiedArtifact 'com.codexvoice.app' 'android/app/build/outputs/apk/debug/app-debug.apk'
+  Install-VerifiedArtifact 'com.codexvoice.app.test' 'android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'
   $deviceDirectory = Join-Path $deviceRoot $(if ($RealSnapshot) { '.runtime\device-verification-real' } else { '.runtime\device-verification' })
   $fixturePath = Join-Path $deviceDirectory 'fixture.json'
   if (Test-Path -LiteralPath $fixturePath) { throw 'Previous owned fixture must be inspected' }
   $nodeExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
   $env:CODEX_VOICE_REMOTE_URL = "wss://$dnsName/remote"
   $env:CODEX_VOICE_DEVICE_REAL = if ($RealSnapshot) { '1' } else { '0' }
+  $env:CODEX_VOICE_DEVICE_PUSH = if ($Notifications) { '1' } else { '0' }
   $fixtureProcess = Start-Process -FilePath $nodeExe -ArgumentList 'dist/scripts/device-harness.js' -WorkingDirectory $deviceRoot -WindowStyle Hidden -PassThru
   $fixtureDeadline = [DateTime]::UtcNow.AddSeconds(20)
   while (-not (Test-Path -LiteralPath $fixturePath)) {
@@ -55,23 +78,30 @@ try {
   & $tsExe serve --bg --https=443 http://127.0.0.1:8788
   if ($LASTEXITCODE -ne 0) { throw 'Scoped private fixture route failed' }
   $routeChanged = $true
-  $outputPath = Join-Path $deviceDirectory $(if ($Ui) { 'monitor-ui.txt' } elseif ($RealSnapshot) { 'real-snapshot.txt' } else { 'private-route.txt' })
+  $outputPath = Join-Path $deviceDirectory $(if ($Notifications) { 'firebase-delivery.txt' } elseif ($Ui) { 'monitor-ui.txt' } elseif ($RealSnapshot) { 'real-snapshot.txt' } else { 'private-route.txt' })
   $errorPath = Join-Path $deviceDirectory 'instrumentation-errors.txt'
   $mobileFlag = if ($MobileData) { 'true' } else { 'false' }
-  $testClass = if ($RealSnapshot) { 'com.codexvoice.app.RealSnapshotTest' } elseif ($Ui) { 'com.codexvoice.app.PrivateMonitorUiTest' } else { 'com.codexvoice.app.PrivateRouteTest' }
-  if ($Ui) {
+  $testClass = if ($ProcessAbsent) { 'com.codexvoice.app.FirebaseProcessTest' } elseif ($Notifications) { 'com.codexvoice.app.FirebaseDeliveryTest' } elseif ($RealSnapshot) { 'com.codexvoice.app.RealSnapshotTest' } elseif ($Ui) { 'com.codexvoice.app.PrivateMonitorUiTest' } else { 'com.codexvoice.app.PrivateRouteTest' }
+  if ($Ui -or $Notifications) {
     # Wake for UI testing. Android enforces any required secure unlock; no PIN is supplied.
     & $adbExe -s $serial shell input keyevent KEYCODE_WAKEUP
     & $adbExe -s $serial shell wm dismiss-keyguard
   }
-  $instrumentProcess = Start-Process -FilePath $adbExe -ArgumentList @('-s',$serial,'shell','am','instrument','-w','-e','class',$testClass,'-e','privateRoute','true','-e','mobileData',$mobileFlag,'com.codexvoice.app.test/androidx.test.runner.AndroidJUnitRunner') -WindowStyle Hidden -PassThru -RedirectStandardOutput $outputPath -RedirectStandardError $errorPath
-  $deviceDeadline = [DateTime]::UtcNow.AddMinutes(6)
+  $instrumentArguments = @('-s',$serial,'shell','am','instrument','-w','-e','class',$testClass,'-e','privateRoute','true','-e','mobileData',$mobileFlag)
+  if ($ProcessAbsent) { $instrumentArguments += @('-e','processPhase','setup') }
+  $instrumentArguments += 'com.codexvoice.app.test/androidx.test.runner.AndroidJUnitRunner'
+  $instrumentProcess = Start-Process -FilePath $adbExe -ArgumentList $instrumentArguments -WindowStyle Hidden -PassThru -RedirectStandardOutput $outputPath -RedirectStandardError $errorPath
+  $deviceDeadline = [DateTime]::UtcNow.AddMinutes($(if ($Notifications) { 12 } else { 6 }))
   while (-not $instrumentProcess.HasExited) {
     if ([DateTime]::UtcNow -gt $deviceDeadline) { throw 'Physical-route test deadline exceeded' }
+    if ($Notifications -and (Test-Path -LiteralPath (Join-Path $deviceDirectory 'push-status.json'))) {
+      & $adbExe -s $serial push (Join-Path $deviceDirectory 'push-status.json') /data/local/tmp/codex-voice-push-status.json 2>$null | Out-Null
+      & $adbExe -s $serial shell chmod 600 /data/local/tmp/codex-voice-push-status.json
+    }
     $deviceControl = & $adbExe -s $serial shell run-as com.codexvoice.app cat no_backup/device-verification/control.txt 2>$null
     if (-not $deviceControl) { Start-Sleep -Milliseconds 300; continue }
     $command = ([string]$deviceControl).Trim()
-    if ($command -in @('complete','failure','waiting','interrupt','approval','decline','restart','revoke')) {
+    if ($command -in @('complete','failure','waiting','interrupt','approval','decline','restart','revoke','offline','online')) {
       & $adbExe -s $serial shell run-as com.codexvoice.app rm no_backup/device-verification/control.txt
       [IO.File]::WriteAllText((Join-Path $deviceDirectory 'control.txt'), $command)
       Write-Output "Physical route check: $command"
@@ -81,16 +111,46 @@ try {
   $instrumentOutput = Get-Content -LiteralPath $outputPath -Raw
   Write-Output $instrumentOutput
   if ($instrumentProcess.ExitCode -ne 0 -or $instrumentOutput -notmatch 'OK \(1 test\)' -or $instrumentOutput -match 'FAILURES|INSTRUMENTATION_FAILED') { throw 'Physical private-route test failed' }
+  if ($ProcessAbsent) {
+    $proof = & $adbExe -s $serial shell run-as com.codexvoice.app cat no_backup/device-verification/process-test-proof.json 2>$null
+    if (-not $proof) { throw 'Process fixture did not prepare; personal pairing may have prevented testing' }
+    & $adbExe -s $serial shell am kill com.codexvoice.app
+    $absenceDeadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+      $phoneProcesses = @(& $adbExe -s $serial shell ps -A -o NAME | Where-Object { $_ -match '^com\.codexvoice\.app(?::.+)?$' })
+      if ($phoneProcesses.Count -eq 0) { break }
+      Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $absenceDeadline)
+    if ($phoneProcesses.Count -ne 0) { throw 'App process remains present; force-stop will not be used' }
+    Write-Output 'Verified: app process absent before FCM send; no force-stop.'
+    [IO.File]::WriteAllText((Join-Path $deviceDirectory 'control.txt'), 'complete')
+    $receiptDeadline = [DateTime]::UtcNow.AddSeconds(60)
+    do {
+      $status = Get-Content -LiteralPath (Join-Path $deviceDirectory 'push-status.json') -Raw | ConvertFrom-Json
+      & $adbExe -s $serial push (Join-Path $deviceDirectory 'push-status.json') /data/local/tmp/codex-voice-push-status.json 2>$null | Out-Null
+      $newProcess = & $adbExe -s $serial shell pidof com.codexvoice.app
+      if ($newProcess -and @($status.deliveries | Where-Object status -eq accepted).Count -gt 0) { break }
+      Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $receiptDeadline)
+    if (-not $newProcess) { throw 'FCM did not start the absent app within the deadline' }
+    Write-Output 'Verified: Android started a new app process after the targeted FCM send.'
+    $verifyOutput = & $adbExe -s $serial shell am instrument -w -e class $testClass -e privateRoute true -e processPhase verify com.codexvoice.app.test/androidx.test.runner.AndroidJUnitRunner
+    $verifyOutput | Tee-Object -FilePath (Join-Path $deviceDirectory 'firebase-process-verify.txt')
+    if (($verifyOutput -join "`n") -notmatch 'OK \(1 test\)' -or ($verifyOutput -join "`n") -match 'FAILURES|INSTRUMENTATION_FAILED') { throw 'Absent-process receipt/notification verification failed' }
+  }
 } finally {
   if ($instrumentProcess -and -not $instrumentProcess.HasExited) { Stop-Process -Id $instrumentProcess.Id -Force; & $adbExe -s $serial shell am force-stop com.codexvoice.app }
+  if ($ProcessAbsent -and $serial) {
+    & $adbExe -s $serial shell am instrument -w -e class com.codexvoice.app.FirebaseProcessTest -e privateRoute true -e processPhase cleanup com.codexvoice.app.test/androidx.test.runner.AndroidJUnitRunner | Out-Null
+  }
   if ($fixtureProcess -and -not $fixtureProcess.HasExited) {
     [IO.File]::WriteAllText((Join-Path $deviceDirectory 'control.txt'), 'quit')
     if (-not $fixtureProcess.WaitForExit(10000)) { Stop-Process -Id $fixtureProcess.Id -Force }
   }
   if ($routeChanged) { & $tsExe serve --bg --https=443 http://127.0.0.1:8787 }
   if ($serial) {
-    & $adbExe -s $serial shell rm -f /data/local/tmp/codex-voice-fixture.json /data/local/tmp/codex-voice-control.txt
-    if ($MobileData) {
+    & $adbExe -s $serial shell rm -f /data/local/tmp/codex-voice-fixture.json /data/local/tmp/codex-voice-control.txt /data/local/tmp/codex-voice-push-status.json
+    if ($MobileData -or $Notifications) {
       & $adbExe -s $serial shell svc wifi $(if ($wifiInitial -eq '1') { 'enable' } else { 'disable' })
       & $adbExe -s $serial shell svc data $(if ($dataInitial -eq '1') { 'enable' } else { 'disable' })
       Start-Sleep -Seconds 2
@@ -101,5 +161,9 @@ try {
   }
   $env:CODEX_VOICE_REMOTE_URL = $previousRemote; $env:JAVA_HOME = $previousJava
   $env:CODEX_VOICE_DEVICE_REAL = $previousDeviceReal
+  $env:CODEX_VOICE_DEVICE_PUSH = $previousDevicePush
+  $env:CODEX_VOICE_FIREBASE_PROJECT_ID = $previousFirebaseProject
+  $env:GOOGLE_APPLICATION_CREDENTIALS = $previousFirebaseCredentials
+  $env:CODEX_VOICE_FIREBASE_SPARK_CONFIRMED = $previousSparkConfirmation
   Pop-Location
 }

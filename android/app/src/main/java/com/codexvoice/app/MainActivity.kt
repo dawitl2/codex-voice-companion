@@ -18,7 +18,7 @@ import com.codexvoice.app.core.notifications.NotificationController
 import com.codexvoice.app.core.notifications.TaskNotifications
 import android.content.Intent
 
-private val android.content.Context.preferencesStore by preferencesDataStore(name = "user_preferences")
+internal val android.content.Context.preferencesStore by preferencesDataStore(name = "user_preferences")
 
 class MainActivity : ComponentActivity() {
     private var dashboardModel: DashboardViewModel? = null
