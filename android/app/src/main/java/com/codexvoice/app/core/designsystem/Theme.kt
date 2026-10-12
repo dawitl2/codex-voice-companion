@@ -9,6 +9,8 @@ import androidx.compose.ui.unit.sp
 import com.codexvoice.app.core.model.ThemeMode
 
 private val dark = darkColorScheme(
+    secondary = Color(0xFFD4D4D8), onSecondary = Color(0xFF171717),
+    secondaryContainer = Color(0xFF303030), onSecondaryContainer = Color(0xFFF5F5F5),
     primary = Color(0xFFF2F2F2), onPrimary = Color(0xFF171717),
     primaryContainer = Color(0xFF303030), onPrimaryContainer = Color(0xFFF2F2F2),
     background = Color(0xFF101010), onBackground = Color(0xFFF5F5F5),
@@ -17,6 +19,8 @@ private val dark = darkColorScheme(
     onSurfaceVariant = Color(0xFFAAAAAE), outlineVariant = Color(0xFF38383A),
     error = Color(0xFFFFB4AB))
 private val light = lightColorScheme(
+    secondary = Color(0xFF636366), onSecondary = Color.White,
+    secondaryContainer = Color(0xFFE5E5E8), onSecondaryContainer = Color(0xFF171717),
     primary = Color(0xFF171717), onPrimary = Color.White,
     primaryContainer = Color(0xFFE6E6E8), onPrimaryContainer = Color(0xFF171717),
     background = Color(0xFFF9F9FA), surface = Color(0xFFF9F9FA),

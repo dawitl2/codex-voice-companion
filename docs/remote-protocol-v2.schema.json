@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:codex-voice:remote:2",
-  "title": "Codex Voice monitoring and notification envelope v2",
+  "title": "Codex Voice monitoring, notifications and optional calls envelope v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -471,6 +471,322 @@
           }
         }
       }
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {},
+          "required": [],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.preferences.request"
+        }
+      }
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.preferences.update"
+        }
+      }
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "eventId": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "eventId"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.offer.request"
+        }
+      }
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "muted": {
+              "type": "boolean"
+            },
+            "callId": {
+              "pattern": "^[a-f0-9-]{36}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "muted",
+            "callId"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.mute"
+        }
+      }
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.preferences.response"
+        }
+      },
+      "required": [
+        "correlationId"
+      ]
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "call": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/callView"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "call",
+            "enabled"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.status.response"
+        }
+      },
+      "required": [
+        "correlationId"
+      ]
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "format": {
+              "$ref": "#/$defs/pcmFormat"
+            },
+            "mediaUrl": {
+              "pattern": "^wss://[a-z0-9-]+\\.[a-z0-9.-]+\\.ts\\.net(:443)?/media$",
+              "type": "string"
+            },
+            "call": {
+              "$ref": "#/$defs/callView"
+            },
+            "tokenExpiresAt": {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z$",
+              "type": "string",
+              "format": "date-time"
+            },
+            "token": {
+              "pattern": "^[A-Za-z0-9_-]{43}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "format",
+            "mediaUrl",
+            "call",
+            "tokenExpiresAt",
+            "token"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.media.response"
+        }
+      },
+      "required": [
+        "correlationId"
+      ]
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "code": {
+              "pattern": "^[a-z_]{1,64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.error"
+        }
+      },
+      "required": [
+        "correlationId"
+      ]
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "callId": {
+              "pattern": "^[a-f0-9-]{36}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "callId"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.accept"
+        }
+      }
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "callId": {
+              "pattern": "^[a-f0-9-]{36}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "callId"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.resume"
+        }
+      }
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "callId": {
+              "pattern": "^[a-f0-9-]{36}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "callId"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.decline"
+        }
+      }
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "callId": {
+              "pattern": "^[a-f0-9-]{36}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "callId"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.end"
+        }
+      }
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "callId": {
+              "pattern": "^[a-f0-9-]{36}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "callId"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.status.request"
+        }
+      }
+    },
+    {
+      "properties": {
+        "payload": {
+          "properties": {
+            "callId": {
+              "pattern": "^[a-f0-9-]{36}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "callId"
+          ],
+          "type": "object",
+          "additionalProperties": false
+        },
+        "type": {
+          "const": "call.test-tone"
+        }
+      }
     }
   ],
   "$defs": {
@@ -723,6 +1039,144 @@
     "opaqueEventId": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
+    },
+    "callView": {
+      "properties": {
+        "callId": {
+          "pattern": "^[a-f0-9-]{36}$",
+          "type": "string"
+        },
+        "eventId": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "threadId": {
+          "pattern": "^[^\\u0000-\\u001f]+$",
+          "minLength": 1,
+          "type": "string",
+          "maxLength": 128
+        },
+        "turnId": {
+          "pattern": "^[^\\u0000-\\u001f]+$",
+          "minLength": 1,
+          "type": "string",
+          "maxLength": 128
+        },
+        "kind": {
+          "enum": [
+            "completed",
+            "failed",
+            "interrupted",
+            "approval"
+          ]
+        },
+        "mode": {
+          "enum": [
+            "mock",
+            "real"
+          ]
+        },
+        "createdAt": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z$",
+          "type": "string",
+          "format": "date-time"
+        },
+        "expiresAt": {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z$",
+          "type": "string",
+          "format": "date-time"
+        },
+        "acceptedAt": {
+          "anyOf": [
+            {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z$",
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "endedAt": {
+          "anyOf": [
+            {
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T[\\d:.]+Z$",
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "offered",
+            "connecting",
+            "active",
+            "reconnecting",
+            "ended",
+            "declined",
+            "expired",
+            "failed"
+          ]
+        },
+        "muted": {
+          "type": "boolean"
+        },
+        "reason": {
+          "pattern": "^[^\\u0000-\\u001f]+$",
+          "minLength": 1,
+          "type": "string",
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "callId",
+        "eventId",
+        "threadId",
+        "turnId",
+        "kind",
+        "mode",
+        "createdAt",
+        "expiresAt",
+        "acceptedAt",
+        "endedAt",
+        "state",
+        "muted",
+        "reason"
+      ],
+      "type": "object",
+      "additionalProperties": false
+    },
+    "pcmFormat": {
+      "properties": {
+        "codec": {
+          "const": "pcm_s16le"
+        },
+        "sampleRate": {
+          "const": 16000
+        },
+        "channels": {
+          "const": 1
+        },
+        "frameMs": {
+          "const": 20
+        },
+        "samplesPerFrame": {
+          "const": 320
+        }
+      },
+      "required": [
+        "codec",
+        "sampleRate",
+        "channels",
+        "frameMs",
+        "samplesPerFrame"
+      ],
+      "type": "object",
+      "additionalProperties": false
     }
   }
 }

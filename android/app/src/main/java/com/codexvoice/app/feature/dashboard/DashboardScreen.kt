@@ -25,7 +25,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
             }
         }
         item {
-            Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (state.demoMode) DemoBadge() else Text(if (state.remote?.snapshot?.mode == "mock") "PC BRIDGE MOCK · SIMULATED" else "PRIVATE PC MONITOR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
