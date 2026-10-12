@@ -1,16 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import { object } from '../utils/safe.js';
+import { preferences, validFid, type NotificationPreferences } from '../notifications/NotificationPolicy.js';
 
-export const VERSION = 1;
+export const VERSION = 2;
 export const CLIENT_LIMIT = 8192;
 export const SERVER_LIMIT = 262144;
 export const REQUESTS = ['state.snapshot.request', 'thread.list.request', 'task.history.request', 'connection.status.request', 'heartbeat', 'disconnect'] as const;
 export type ReadRequest = typeof REQUESTS[number];
 export type ClientMessage = Envelope<'client.hello', { name: string }> |
   Envelope<'pair.request', { code: string }> | Envelope<'auth.request', { deviceId: string; token: string }> |
+  Envelope<'notification.register', { fid: string; projectId: string; preferences: NotificationPreferences }> |
+  Envelope<'notification.preferences.update', { preferences: NotificationPreferences }> |
+  Envelope<'notification.status.request', Record<string, never>> |
+  Envelope<'notification.event.request', { eventId: string }> |
+  Envelope<'notification.receipt', { eventId: string; stage: 'received' | 'posted' | 'opened' | 'dismissed' }> |
   Envelope<ReadRequest, Record<string, never>>;
 export interface Envelope<T extends string = string, P = unknown> {
-  version: 1; type: T; id: string; timestamp: string; payload: P; correlationId?: string;
+  version: 2; type: T; id: string; timestamp: string; payload: P; correlationId?: string;
 }
 export interface RemoteThread { id: string; label: string; project: string; status: string }
 export interface RemoteTurn { id: string; threadId: string; status: string; startedAt: string; finishedAt: string | null }
@@ -82,6 +88,18 @@ function validateServer(type: string, payload: unknown): void {
       textField(p.bridgeName, 80); break;
     case 'auth.failed': case 'pair.failed': case 'protocol.error': case 'request.error': exact(p, ['code']); textField(p.code, 64); break;
     case 'heartbeat': exact(p, []); break;
+    case 'notification.status.response':
+      exact(p, ['registered','configured','preferences','diagnostic']);
+      if (typeof p.registered !== 'boolean' || typeof p.configured !== 'boolean') throw new ProtocolError('invalid_message');
+      preferences(p.preferences); textField(p.diagnostic, 64); break;
+    case 'notification.event.response':
+      exact(p, ['eventId','threadId','turnId','kind','mode','occurredAt','expiresAt','approvalStatus','expired']);
+      if (!/^[a-f0-9]{64}$/.test(textField(p.eventId, 64)) || typeof p.expired !== 'boolean') throw new ProtocolError('invalid_message');
+      textField(p.threadId, 128); textField(p.turnId, 128); date(p.occurredAt); date(p.expiresAt); choice(p.mode, ['mock','real']); choice(p.kind, ['completed','failed','interrupted','approval']);
+      if (p.approvalStatus !== null) choice(p.approvalStatus, ['pending','accepted','declined','expired','unavailable','resolved']); break;
+    case 'notification.receipt.response':
+      exact(p, ['eventId','stage']); if (!/^[a-f0-9]{64}$/.test(textField(p.eventId, 64))) throw new ProtocolError('invalid_message'); choice(p.stage, ['received','posted','opened','dismissed']); break;
+    case 'notification.error': exact(p, ['code']); textField(p.code, 64); break;
     default: throw new ProtocolError('unknown_message');
   }
 }
@@ -98,6 +116,13 @@ export function parseClient(raw: string): ClientMessage {
       case 'client.hello': keys(p, ['name']); textField(p.name, 80); break;
       case 'pair.request': keys(p, ['code']); if (!/^[A-F0-9]{16}$/.test(textField(p.code, 16))) throw new ProtocolError('invalid_message'); break;
       case 'auth.request': keys(p, ['deviceId', 'token']); if (!/^[a-f0-9-]{36}$/.test(textField(p.deviceId, 36)) || !/^[A-Za-z0-9_-]{43}$/.test(textField(p.token, 43))) throw new ProtocolError('invalid_message'); break;
+      case 'notification.register':
+        exact(p, ['fid','projectId','preferences']); if (!validFid(p.fid) || !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(textField(p.projectId, 30))) throw new ProtocolError('invalid_message'); preferences(p.preferences); break;
+      case 'notification.preferences.update': exact(p, ['preferences']); preferences(p.preferences); break;
+      case 'notification.status.request': exact(p, []); break;
+      case 'notification.event.request': case 'notification.receipt':
+        exact(p, row.type === 'notification.receipt' ? ['eventId','stage'] : ['eventId']); if (!/^[a-f0-9]{64}$/.test(textField(p.eventId, 64))) throw new ProtocolError('invalid_message');
+        if (row.type === 'notification.receipt') choice(p.stage, ['received','posted','opened','dismissed']); break;
       default: if (!(REQUESTS as readonly unknown[]).includes(row.type)) throw new ProtocolError('unknown_message'); keys(p, []);
     }
     return row as unknown as ClientMessage;

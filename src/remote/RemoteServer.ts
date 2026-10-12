@@ -7,6 +7,10 @@ import type { Bridge } from '../core/Bridge.js';
 import type { BridgeEvent } from '../types/index.js';
 import { sanitize } from '../utils/safe.js';
 import { CLIENT_LIMIT, encode, parseClient, ProtocolError, type Snapshot } from './Protocol.js';
+import type { DeviceRegistry } from './DeviceRegistry.js';
+import type { NotificationDispatcher } from '../notifications/NotificationDispatcher.js';
+
+export interface NotificationAccess { registry: DeviceRegistry; dispatcher: NotificationDispatcher; projectId: string | undefined }
 
 export interface RemoteAccess {
   authenticate(deviceId: string, token: string, identity: string): boolean;
@@ -29,7 +33,7 @@ export class RemoteServer {
   private readonly pendingTypes = new Set<string>();
   readonly endpoint: URL;
   constructor(private readonly bridge: Bridge, private readonly access: RemoteAccess,
-    endpoint: string, private readonly port = 8787, private readonly handshakeMs = 15000, private readonly heartbeatMs = 20000) {
+    endpoint: string, private readonly port = 8787, private readonly handshakeMs = 15000, private readonly heartbeatMs = 20000, private readonly notifications?: NotificationAccess) {
     this.endpoint = privateEndpoint(endpoint);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid remote port');
     this.server.headersTimeout = 10000; this.server.requestTimeout = 15000;
@@ -135,7 +139,21 @@ export class RemoteServer {
           return;
         }
         if (!session.deviceId) throw new ProtocolError('authentication_required');
-        if (m.type === 'heartbeat') this.send(session, 'heartbeat', {}, m.id);
+        if (m.type.startsWith('notification.')) {
+          try {
+            const n = this.notifications; if (!n) throw new ProtocolError('notifications_unavailable');
+            if (m.type === 'notification.register') {
+              if (!n.projectId || n.projectId !== m.payload.projectId) throw new ProtocolError('firebase_project_mismatch');
+              n.registry.registerPush(session.deviceId, m.payload.fid, m.payload.preferences);
+            } else if (m.type === 'notification.preferences.update') n.registry.updatePushPreferences(session.deviceId, m.payload.preferences);
+            if (m.type === 'notification.event.request') this.send(session, 'notification.event.response', n.dispatcher.event(session.deviceId, m.payload.eventId), m.id);
+            else if (m.type === 'notification.receipt') {
+              n.dispatcher.receipt(session.deviceId, m.payload.eventId, m.payload.stage);
+              this.send(session, 'notification.receipt.response', m.payload, m.id);
+            } else this.send(session, 'notification.status.response', { ...n.registry.pushState(session.deviceId), configured: n.dispatcher.configured, diagnostic: n.dispatcher.diagnostic }, m.id);
+          } catch (error) { this.send(session, 'notification.error', { code: error instanceof ProtocolError ? error.code : error instanceof Error && error.message === 'unknown_event' ? 'unknown_event' : 'notification_storage_unavailable' }, m.id); }
+        }
+        else if (m.type === 'heartbeat') this.send(session, 'heartbeat', {}, m.id);
         else if (m.type === 'disconnect') socket.close(1000, 'Disconnected');
         else {
           const response = m.type === 'thread.list.request' ? 'thread.list.response' : m.type === 'task.history.request' ? 'task.history.response' : m.type === 'connection.status.request' ? 'connection.status' : 'state.snapshot';

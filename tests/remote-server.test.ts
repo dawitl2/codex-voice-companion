@@ -9,6 +9,10 @@ import { Bridge } from '../src/core/Bridge.js';
 import { MockTransport } from '../src/core/MockTransport.js';
 import { RemoteServer, privateEndpoint } from '../src/remote/RemoteServer.js';
 import { envelope } from '../src/remote/Protocol.js';
+import { DeviceRegistry, type RegistryStorage } from '../src/remote/DeviceRegistry.js';
+import { NotificationDeliveryStore } from '../src/notifications/NotificationDeliveryStore.js';
+import { NotificationDispatcher } from '../src/notifications/NotificationDispatcher.js';
+import { DEFAULT_PREFERENCES } from '../src/notifications/NotificationPolicy.js';
 
 const endpoint = 'wss://test.example.ts.net/remote';
 const headers = { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': 'test.example.ts.net', 'Tailscale-User-Login': 'fixture@example.invalid' };
@@ -45,6 +49,24 @@ test('unauthenticated monitoring and unsupported messages reveal no task state',
   c.send('client.hello', { name: 'Fixture' }); await c.wait('server.hello'); c.send('state.snapshot.request');
   assert.equal((await c.wait('protocol.error')).payload.code, 'authentication_required');
   assert.equal(c.inbox.some(x => x.type === 'state.snapshot'), false);
+});
+test('notification registration requires authentication and binds rotation to the session device', async t => {
+  const f = await fixture(t);
+  class Memory implements RegistryStorage { data: unknown = []; load() { return this.data; } save(value: unknown) { this.data = structuredClone(value); } }
+  const registry = new DeviceRegistry(new Memory()), credential = registry.pair(registry.beginPairing().code, 'Fixture', headers['Tailscale-User-Login']);
+  const dispatcher = new NotificationDispatcher(f.bridge, registry, new NotificationDeliveryStore(new Memory()), undefined);
+  const remote = new RemoteServer(f.bridge, registry, endpoint, 0, 1000, 2000, { registry, dispatcher, projectId: 'codex-voice-example' }); await remote.start();
+  t.after(async () => { await remote.close(); await dispatcher.close(); });
+  const registration = { fid: 'c' + 'A'.repeat(21), projectId: 'codex-voice-example', preferences: { ...DEFAULT_PREFERENCES, enabled: true } };
+  const unauthenticated = await client(remote); unauthenticated.send('client.hello', { name: 'Fixture' }); await unauthenticated.wait('server.hello');
+  unauthenticated.send('notification.register', registration); assert.equal((await unauthenticated.wait('protocol.error')).payload.code, 'authentication_required'); assert.equal(registry.pushTargets().length, 0);
+  const c = await client(remote); c.send('client.hello', { name: 'Fixture' }); await c.wait('server.hello'); c.send('auth.request', { deviceId: credential.deviceId, token: credential.token }); await c.wait('auth.success');
+  c.send('notification.register', { ...registration, projectId: 'another-project' }); assert.equal((await c.wait('notification.error')).payload.code, 'firebase_project_mismatch');
+  c.send('notification.register', registration); const status = await c.wait('notification.status.response'); assert.equal(status.payload.registered, true); assert.equal(status.payload.configured, false);
+  c.send('notification.register', { ...registration, fid: 'd' + 'B'.repeat(21) }); await c.wait('notification.status.response'); assert.equal(registry.pushTargets()[0]?.fid, 'd' + 'B'.repeat(21));
+  c.send('notification.preferences.update', { preferences: { ...registration.preferences, completed: false } }); await c.wait('notification.status.response'); assert.equal(registry.pushTargets()[0]?.preferences.completed, false);
+  c.send('notification.event.request', { eventId: 'a'.repeat(64) }); assert.equal((await c.wait('notification.error')).payload.code, 'unknown_event');
+  c.ws.close();
 });
 test('actual loopback websocket authenticates, receives bridge events and reconnects with snapshots', async t => {
   const { bridge, remote, deviceId, token, dir } = await fixture(t);

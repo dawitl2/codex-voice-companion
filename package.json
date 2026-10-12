@@ -17,6 +17,7 @@
     "check:connection": "npm run build && node dist/scripts/connection-check.js"
   },
   "dependencies": {
+    "firebase-admin": "14.5.0",
     "smol-toml": "1.9.1",
     "ws": "8.22.0"
   },

@@ -4,6 +4,7 @@ import { errorText, sanitize } from '../utils/safe.js';
 import { summarize } from '../core/SummaryFormatter.js';
 import type { RemoteServer } from '../remote/RemoteServer.js';
 import type { DeviceRegistry } from '../remote/DeviceRegistry.js';
+import type { NotificationDispatcher } from '../notifications/NotificationDispatcher.js';
 
 export const HELP = `Codex Voice Bridge — local terminal commands
 status                       Connection, auth, selected thread and active turn
@@ -21,13 +22,14 @@ stop                         Request interruption of selected active turn
 reconnect                    Restart only the transport; select/resume before send
 pair-device                  Issue one two-minute invitation (--remote required)
 devices                      List paired devices (no credentials)
+notification-status          Non-sensitive push attempts and device observations
 revoke-device <device-id>     Revoke and disconnect a paired device
 help                         Show this help
 exit                         Cancel pending approvals and shut down
 Mock fixtures: send [mock:fail], [mock:approval], [mock:wait], [mock:crash], [mock:duplicate]
 This manages companion conversations; it does not attach to live VS Code sessions.`;
 
-export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices?: DeviceRegistry): Promise<void> {
+export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices?: DeviceRegistry, notifications?: NotificationDispatcher): Promise<void> {
   console.log(`Codex Voice Bridge 0.1.0 | ${bridge.mode.toUpperCase()} | Node ${process.versions.node}`);
   console.log(HELP);
   let watching = true;
@@ -76,6 +78,11 @@ export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices
         console.log(`Private address: ${remote.endpoint.href}\nOne-time pairing code: ${invitation.code}\nExpires: ${invitation.expiresAt}. Enter only in your Android app; do not share or log this invitation.`); break;
       }
       case 'devices': if (!devices) throw new Error('Remote monitoring is not enabled'); console.table(devices.list()); break;
+      case 'notification-status':
+        if (!notifications || !devices) throw new Error('Remote monitoring is not enabled');
+        console.log(`Push provider: ${notifications.diagnostic}; configured=${notifications.configured}`);
+        for (const device of devices.list()) console.log(JSON.stringify({ deviceId: device.id, ...devices.pushState(device.id), deliveries: notifications.store.diagnostics(device.id) }));
+        break;
       case 'revoke-device': if (!remote || !devices) throw new Error('Remote monitoring is not enabled'); devices.revoke(rest); remote.revoke(rest); console.log('Device revoked'); break;
       case 'exit': shutdown(); break;
       default: throw new Error('Unknown command; type help');
