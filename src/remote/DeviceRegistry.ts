@@ -22,7 +22,7 @@ function powershell(script: string, input: string): string {
 }
 export class WindowsRegistryStorage implements RegistryStorage {
   private readonly file: string;
-  constructor(directory: string, filename: 'devices.dpapi' | 'notifications.dpapi' = 'devices.dpapi') {
+  constructor(directory: string, filename: 'devices.dpapi' | 'notifications.dpapi' | 'calls.dpapi' = 'devices.dpapi') {
     mkdirSync(directory, { recursive: true }); this.file = join(directory, filename);
     powershell(`$path = [Console]::In.ReadToEnd();
       if ([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse point refused' };
@@ -88,6 +88,7 @@ export class DeviceRegistry implements RemoteAccess {
     return accepted;
   }
   list(): { id: string; name: string; createdAt: string }[] { return this.devices.map(({ id, name, createdAt }) => ({ id, name, createdAt })); }
+  hasDevice(id: string, identity?: string): boolean { return this.devices.some(d => d.id === id && (identity === undefined || d.identity === identity)); }
   registerPush(id: string, fid: string, value: NotificationPreferences): void {
     if (!validFid(fid)) throw new ProtocolError('invalid_registration');
     const next = structuredClone(this.devices), device = next.find(d => d.id === id);
