@@ -22,6 +22,16 @@ test('call invitations are opt-in, minimal, bounded and deduplicated by the actu
   assert.equal(f.manager.offer(f.device, f.event())?.callId, offer.callId);
   assert.equal(f.manager.offer(f.device, f.event('b')), null); assert.equal('deviceId' in offer, false);
 });
+
+test('local stored-task reviews require opt-in, preserve real provenance and are visible only to their owner', t => {
+  const f=fixture(t); assert.throws(()=>f.manager.review(f.device,'thread','stored-turn','real'),/invitations_disabled/);
+  f.manager.setPreferences(f.device,true); const review=f.manager.review(f.device,'thread','stored-turn','real');
+  assert.equal(review.kind,'review'); assert.equal(review.mode,'real'); assert.equal(review.reason,'manual_task_review'); assert.equal(review.turnId,'stored-turn');
+  assert.equal(f.manager.current(f.device)?.callId,review.callId); assert.throws(()=>f.manager.current(randomUUID()),/revoked/);
+  assert.throws(()=>f.manager.review(f.device,'thread','another-turn','real'),/call_busy/);
+  parseClient(JSON.stringify(envelope('call.current.request',{})));
+  f.manager.end(f.device,review.callId); assert.equal(f.manager.current(f.device),null);
+});
 test('offers expire independently of still-available completion history', t => {
   const f = fixture(t), offer = f.offer(); f.advance(120000); assert.equal(f.manager.byEvent(f.device, offer.eventId)?.state, 'expired');
   assert.throws(() => f.manager.accept(f.device, offer.callId, 'owner'), /call_not_available/);

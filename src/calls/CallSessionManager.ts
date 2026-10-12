@@ -7,7 +7,7 @@ export type CallState = typeof CALL_STATES[number];
 export const TERMINAL = new Set<CallState>(['ended','declined','expired','failed']);
 export interface CallSession {
   callId: string; deviceId: string; eventId: string; threadId: string; turnId: string;
-  kind: NotificationEvent['kind']; mode: 'mock' | 'real'; createdAt: string; expiresAt: string;
+  kind: NotificationEvent['kind'] | 'review'; mode: 'mock' | 'real'; createdAt: string; expiresAt: string;
   acceptedAt: string | null; endedAt: string | null; state: CallState; muted: boolean; reason: string;
   approvalId?: string;
 }
@@ -80,6 +80,19 @@ export class CallSessionManager {
   byEvent(deviceId: string, eventId: string): CallView | null {
     this.sweep(); this.preferences(deviceId);
     const call = this.sessions.find(c => c.deviceId === deviceId && c.eventId === eventId); return call ? this.view(call) : null;
+  }
+  current(deviceId: string): CallView | null {
+    this.sweep(); this.preferences(deviceId);
+    const call = this.sessions.find(c => c.deviceId === deviceId && !TERMINAL.has(c.state)); return call ? this.view(call) : null;
+  }
+  /** Explicit local-PC review of an existing stored turn; never a fabricated new completion event. */
+  review(deviceId: string, threadId: string, turnId: string, mode: 'mock' | 'real'): CallView {
+    this.sweep(); if (!this.preferences(deviceId)) throw new CallError('invitations_disabled');
+    if (this.sessions.some(c => c.deviceId === deviceId && !TERMINAL.has(c.state))) throw new CallError('call_busy');
+    const call: CallSession = { callId: randomUUID(), deviceId, eventId: digest('review|' + randomUUID()), threadId, turnId, kind: 'review', mode,
+      createdAt: this.iso(), expiresAt: new Date(this.now() + 120000).toISOString(), acceptedAt: null, endedAt: null, state: 'offered', muted: false, reason: 'manual_task_review' };
+    this.sessions.push(call); while (this.sessions.length > 200) this.sessions.splice(this.sessions.findIndex(c => TERMINAL.has(c.state)), 1);
+    this.save(); this.notify(call); return this.view(call);
   }
   status(deviceId: string, callId: string): CallView { this.sweep(); return this.view(this.owner(deviceId, callId)); }
   accept(deviceId: string, callId: string, identity: string, resume = false): { call: CallView; token: string; tokenExpiresAt: string } {

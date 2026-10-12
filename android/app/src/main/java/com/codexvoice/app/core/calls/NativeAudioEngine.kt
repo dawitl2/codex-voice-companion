@@ -10,6 +10,8 @@ import com.codexvoice.app.core.notifications.TaskNotifications
 import com.google.gson.JsonParser
 import com.google.gson.Gson
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.*
 import okio.ByteString
 import okio.ByteString.Companion.toByteString
@@ -29,6 +31,8 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
     @Volatile private var track: AudioTrack? = null
     @Volatile private var ready = false
     @Volatile private var muted = grant.call.muted
+    @Volatile private var speechPaused = false
+    private val recorderControl = Mutex()
     private var focus: AudioFocusRequest? = null
     private var previousMode: Int? = null
     private var previousDevice: AudioDeviceInfo? = null
@@ -131,18 +135,18 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
         val recorder = record ?: return
         try {
             while (scope.isActive && !closed.get()) {
-                if (muted) { samples.fill(0); offset = 0; delay(20); continue }
+                if (muted || speechPaused) { samples.fill(0); offset = 0; delay(20); continue }
                 if (recorder.recordingState != AudioRecord.RECORDSTATE_RECORDING) { delay(20); continue }
                 val count = recorder.read(samples, offset, 320 - offset, AudioRecord.READ_BLOCKING)
                 if (closed.get()) break
-                if (muted) { offset = 0; continue }
+                if (muted || speechPaused) { offset = 0; continue }
                 check(count > 0); offset += count
                 if (offset < 320) continue
                 offset = 0
                 if (!canTransmit(CallRuntime.state.value.phase, muted, ready)) continue
                 if (socket!!.queueSize() > 4096) { CallRuntime.update { it.copy(dropped = it.dropped + 1) }; continue }
                 AudioFrames.encode(bytes, samples, sequence++, SystemClock.elapsedRealtime())
-                if (muted || closed.get()) continue
+                if (muted || speechPaused || closed.get()) continue
                 check(socket!!.send(bytes.toByteString()))
                 sent++
                 val now = SystemClock.elapsedRealtime()
@@ -172,14 +176,24 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
             }
         } catch (_: Exception) { if (!closed.get()) finish("Audio playback failed", false) }
     }
-    fun mute(value: Boolean) = scope.launch {
-        if (!ready || closed.get()) return@launch
-        muted = value // Gate new frame sends immediately, before changing the recorder.
+    fun mute(value: Boolean): Job {
+        muted = value
+        return scope.launch { applyCaptureGate() }
+    }
+    suspend fun pauseForSpeech(value: Boolean): Boolean {
+        speechPaused = value
+        return applyCaptureGate()
+    }
+    private suspend fun applyCaptureGate(): Boolean = recorderControl.withLock {
+        if (!ready || closed.get()) return@withLock false
         try {
-            if (value) record?.stop() else { record?.startRecording(); check(record?.recordingState == AudioRecord.RECORDSTATE_RECORDING) }
-            socket?.send("""{"version":1,"type":"media.mute","muted":$value}""")
-            CallRuntime.update { it.copy(muted = value, capturing = !value, inputLevel = 0f) }
-        } catch (_: Exception) { finish("Microphone mute control failed", false) }
+            val blocked = muted || speechPaused
+            if (blocked) { if (record?.recordingState == AudioRecord.RECORDSTATE_RECORDING) record?.stop() }
+            else if (record?.recordingState != AudioRecord.RECORDSTATE_RECORDING) { record?.startRecording(); check(record?.recordingState == AudioRecord.RECORDSTATE_RECORDING) }
+            socket?.send("""{"version":1,"type":"media.mute","muted":$blocked}""")
+            CallRuntime.update { it.copy(muted = muted, capturing = !blocked && record?.recordingState == AudioRecord.RECORDSTATE_RECORDING, inputLevel = 0f) }
+            true
+        } catch (_: Exception) { if (!closed.get()) finish("Microphone mute control failed", false); false }
     }
     fun tone() { if (ready && !closed.get()) socket?.send("""{"version":1,"type":"media.tone"}""") }
     fun speaker(value: Boolean) = scope.launch {

@@ -10,6 +10,7 @@ import { NotificationDeliveryStore } from '../src/notifications/NotificationDeli
 import { CallSessionManager } from '../src/calls/CallSessionManager.js';
 import { CallEventCoordinator } from '../src/calls/CallEventCoordinator.js';
 import { MediaTransportServer } from '../src/calls/MediaTransportServer.js';
+import { SpeechSessionCoordinator } from '../src/speech/SpeechSessionCoordinator.js';
 
 const directory = resolve('.runtime', 'protocol-integration'); mkdirSync(directory, { recursive: true });
 const metadata = join(directory, 'fixture.json'), control = join(directory, 'control.txt');
@@ -28,12 +29,14 @@ const dispatcher = new NotificationDispatcher(bridge, registry, new Notification
 let callData: unknown = [];
 const calls = new CallSessionManager({ load: () => callData, save: value => { callData = structuredClone(value); } }, registry);
 const coordinator = new CallEventCoordinator(bridge, registry, calls);
-const media = new MediaTransportServer(calls, 'wss://test.example.ts.net/remote');
-const remote = new RemoteServer(bridge, registry, 'wss://test.example.ts.net/remote', 0, 15000, 20000, { registry, dispatcher, projectId: 'codex-voice-example' }, { manager: calls, media });
+// Protocol-only mock recognizer: native whisper.cpp is verified separately with real speech.
+const speech = new SpeechSessionCoordinator(calls, bridge, { prepare: async () => {}, recognize: async () => ({ text: 'Synthetic protocol fixture transcript', language: 'en', processingMs: 1, loadMs: null }), close() {} });
+const media = new MediaTransportServer(calls, 'wss://test.example.ts.net/remote', (call, pcm, level) => speech.frame(call, pcm, level));
+const remote = new RemoteServer(bridge, registry, 'wss://test.example.ts.net/remote', 0, 15000, 20000, { registry, dispatcher, projectId: 'codex-voice-example' }, { manager: calls, media, speech });
 let started = false, closing = false;
 async function close() {
   if (closing) return; closing = true; clearInterval(poll);
-  coordinator.close(); await remote.close(); calls.close(); await dispatcher.close(); await bridge.close();
+  speech.close(); coordinator.close(); await remote.close(); calls.close(); await dispatcher.close(); await bridge.close();
   rmSync(stateDirectory, { recursive: true });
   if (existsSync(metadata)) rmSync(metadata); if (existsSync(control)) rmSync(control);
   if (existsSync(pushFile)) rmSync(pushFile);

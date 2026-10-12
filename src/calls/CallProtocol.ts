@@ -3,10 +3,10 @@ import { PCM } from './AudioProtocol.js';
 
 const uuid = (value: unknown) => typeof value === 'string' && /^[a-f0-9-]{36}$/.test(value);
 const event = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
-export type CallRequest = 'call.preferences.request' | 'call.preferences.update' | 'call.offer.request' | 'call.accept' | 'call.resume' | 'call.decline' | 'call.end' | 'call.mute' | 'call.status.request' | 'call.test-tone';
+export type CallRequest = 'call.preferences.request' | 'call.preferences.update' | 'call.current.request' | 'call.offer.request' | 'call.accept' | 'call.resume' | 'call.decline' | 'call.end' | 'call.mute' | 'call.status.request' | 'call.test-tone';
 function exact(p: Record<string, unknown>, fields: string[]) { if (Object.keys(p).length !== fields.length || fields.some(k => !Object.hasOwn(p, k))) throw new Error('invalid_call_message'); }
 export function validateCallRequest(type: string, p: Record<string, unknown>) {
-  if (type === 'call.preferences.request') { exact(p, []); return; }
+  if (type === 'call.preferences.request' || type === 'call.current.request') { exact(p, []); return; }
   if (type === 'call.preferences.update') { exact(p, ['enabled']); if (typeof p.enabled !== 'boolean') throw new Error('invalid_call_message'); return; }
   if (type === 'call.offer.request') { exact(p, ['eventId']); if (!event(p.eventId)) throw new Error('invalid_call_message'); return; }
   if (!['call.accept','call.resume','call.decline','call.end','call.mute','call.status.request','call.test-tone'].includes(type)) throw new Error('unknown_call_message');
@@ -18,7 +18,7 @@ export function validateCallView(value: unknown) {
   const p = value as Record<string, unknown>;
   exact(p, ['callId','eventId','threadId','turnId','kind','mode','createdAt','expiresAt','acceptedAt','endedAt','state','muted','reason']);
   if (!uuid(p.callId) || !event(p.eventId) || !CALL_STATES.includes(p.state as never) || typeof p.muted !== 'boolean' ||
-      !['completed','failed','interrupted','approval'].includes(String(p.kind)) || !['mock','real'].includes(String(p.mode))) throw new Error('invalid_call_message');
+      !['completed','failed','interrupted','approval','review'].includes(String(p.kind)) || !['mock','real'].includes(String(p.mode))) throw new Error('invalid_call_message');
   for (const key of ['threadId','turnId','reason']) if (typeof p[key] !== 'string' || !p[key] || String(p[key]).length > 128 || /[\x00-\x1f]/.test(String(p[key]))) throw new Error('invalid_call_message');
   for (const key of ['createdAt','expiresAt','acceptedAt','endedAt']) if (!(p[key] === null && ['acceptedAt','endedAt'].includes(key)) &&
       (typeof p[key] !== 'string' || !/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(String(p[key])) || !Number.isFinite(Date.parse(String(p[key]))))) throw new Error('invalid_call_message');

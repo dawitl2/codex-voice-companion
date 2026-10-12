@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { object } from '../utils/safe.js';
 import { preferences, validFid, type NotificationPreferences } from '../notifications/NotificationPolicy.js';
 import { validateCallRequest, validateCallResponse, type CallRequest } from '../calls/CallProtocol.js';
+import { validateSpeechRequest, validateSpeechResponse, type SpeechRequest } from '../speech/SpeechProtocol.js';
 
 export const VERSION = 2;
 export const CLIENT_LIMIT = 8192;
@@ -16,6 +17,7 @@ export type ClientMessage = Envelope<'client.hello', { name: string }> |
   Envelope<'notification.event.request', { eventId: string }> |
   Envelope<'notification.receipt', { eventId: string; stage: 'received' | 'posted' | 'opened' | 'dismissed' }> |
   Envelope<CallRequest, Record<string, unknown>> |
+  Envelope<SpeechRequest, Record<string, unknown>> |
   Envelope<ReadRequest, Record<string, never>>;
 export interface Envelope<T extends string = string, P = unknown> {
   version: 2; type: T; id: string; timestamp: string; payload: P; correlationId?: string;
@@ -81,6 +83,7 @@ function validateSnapshot(p: Record<string, unknown>): void {
 function validateServer(type: string, payload: unknown): void {
   const p = object(payload);
   if (type.startsWith('call.')) { validateCallResponse(type, p); return; }
+  if (type.startsWith('speech.')) { validateSpeechResponse(type, p); return; }
   if (['state.snapshot','thread.list.response','task.history.response','connection.status','turn.progress','turn.completed','turn.failed','turn.interrupted','approval.pending'].includes(type)) { validateSnapshot(p); return; }
   switch (type) {
     case 'server.hello': exact(p, ['bridgeName']); textField(p.bridgeName, 80); break;
@@ -117,6 +120,7 @@ export function parseClient(raw: string): ClientMessage {
     if (row.correlationId !== undefined) textField(row.correlationId, 128);
     const p = object(row.payload);
     if (String(row.type).startsWith('call.')) validateCallRequest(String(row.type), p);
+    else if (String(row.type).startsWith('speech.')) validateSpeechRequest(String(row.type), p);
     else switch (row.type) {
       case 'client.hello': keys(p, ['name']); textField(p.name, 80); break;
       case 'pair.request': keys(p, ['code']); if (!/^[A-F0-9]{16}$/.test(textField(p.code, 16))) throw new ProtocolError('invalid_message'); break;

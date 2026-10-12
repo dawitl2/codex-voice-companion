@@ -89,6 +89,12 @@ export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices
         for (const device of devices.list()) console.log(JSON.stringify({ deviceId: device.id, ...devices.pushState(device.id), deliveries: notifications.store.diagnostics(device.id) }));
         break;
       case 'call-status': if (!calls || !media) throw new Error('Start with --remote --calls'); console.log(JSON.stringify({ calls: calls.diagnostics(), media: media.diagnostics() })); break;
+      case 'review-call': {
+        if (!calls) throw new Error('Start with --remote --calls');
+        const thread = bridge.threads.selected(), turn = bridge.store.state.turns.filter(t => t.threadId === thread.id).at(-1);
+        if (!turn) throw new Error('No stored turn to review');
+        console.log('Existing task review offered:', calls.review(rest, thread.id, turn.id, bridge.mode).callId); break;
+      }
       case 'audio-test': if (!media) throw new Error('Calls are disabled'); media.tone(rest); console.log('Quiet 600 ms PC tone requested. No AI speech.'); break;
       case 'end-call': {
         if (!calls || !devices) throw new Error('Calls are disabled');

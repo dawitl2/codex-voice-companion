@@ -35,7 +35,7 @@ export class SpeechSessionCoordinator {
     return { callId, text: spokenSummary(thread, turn), mode: call.mode, taskState: turn?.status ?? 'unavailable' };
   }
   frame(call: CallSession, pcm: Buffer, level: number) {
-    const s = this.sessions.get(call.callId); if (!s || !s.enabled || s.speaking || call.muted || call.state !== 'active' || this.engineState !== 'ready') return;
+    const s = this.sessions.get(call.callId); if (!s || s.deviceId !== call.deviceId || !s.enabled || s.speaking || call.muted || call.state !== 'active' || this.engineState !== 'ready') return;
     const now = Date.now(); if (s.lastFrame && now - s.lastFrame > 500) s.segmenter.clear(); s.lastFrame = now;
     const segment = s.segmenter.accept(pcm, level, now); if (segment) this.enqueue(s, segment);
   }

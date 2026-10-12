@@ -40,7 +40,7 @@ class LiveCallController(private val context: Context, private val client: Remot
                         val offer = CallWire.offer(response.payload.getAsJsonObject("call"))
                         if (state.value.serviceRunning) {
                             if (offer.callId == state.value.offer?.callId && offer.state in setOf("ended","failed","expired","declined")) CallRuntime.command(context, CallAudioService.END)
-                        } else if (operation == "offer" && offer.eventId == wantedEvent) {
+                        } else if (operation == "current" || (operation == "offer" && offer.eventId == wantedEvent)) {
                             resumes = 0; wantedEvent = null
                             CallDiagnostics.record(context, "offer_received")
                             CallRuntime.update { LiveCallState(phase = phase(offer.state), offer = offer, muted = offer.muted) }
@@ -107,6 +107,7 @@ class LiveCallController(private val context: Context, private val client: Remot
         if (current.phase == LivePhase.OFFERED && current.offer != null && current.offer.expiresAt <= System.currentTimeMillis()) CallRuntime.update { it.copy(phase = LivePhase.EXPIRED, problem = "Call invitation expired; task results remain available") }
     }
     fun foreground(active: Boolean) = scope.launch { foreground = active; sync() }
+    fun openCurrent() = scope.launch { if (state.value.serviceRunning) return@launch; wantedEvent=null; requestedEvent=null; request("call.current.request", emptyMap(), "current") }
     fun open(eventId: String) = scope.launch {
         val event = PushStore.get(context).state.value.events.find { it.eventId == eventId } ?: return@launch
         if (PushParser.parse(event.data(), KeystoreCredentialStore(context).load(), System.currentTimeMillis(), allowExpired = true) == null) return@launch

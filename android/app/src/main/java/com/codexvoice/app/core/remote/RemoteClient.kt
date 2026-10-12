@@ -16,6 +16,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     private val mutableState = MutableStateFlow(ClientState()); val state = mutableState.asStateFlow()
     private val mutableNotifications = MutableSharedFlow<ServerMessage>(extraBufferCapacity = 32); val notifications = mutableNotifications.asSharedFlow()
     private val mutableCalls = MutableSharedFlow<ServerMessage>(extraBufferCapacity = 32); val calls = mutableCalls.asSharedFlow()
+    private val mutableSpeech = MutableSharedFlow<ServerMessage>(extraBufferCapacity = 32); val speech = mutableSpeech.asSharedFlow()
     private val notificationPending = mutableMapOf<String, String>()
     private val queue = Channel<() -> Unit>(64)
     @Volatile private var closed = false
@@ -81,7 +82,9 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
             "notification.receipt" -> "notification.receipt.response"
             "call.preferences.request", "call.preferences.update" -> "call.preferences.response"
             "call.accept", "call.resume" -> "call.media.response"
-            "call.offer.request", "call.decline", "call.end", "call.mute", "call.status.request", "call.test-tone" -> "call.status.response"
+            "call.current.request", "call.offer.request", "call.decline", "call.end", "call.mute", "call.status.request", "call.test-tone" -> "call.status.response"
+            "speech.summary.request" -> "speech.summary.response"
+            "speech.status.request", "speech.listening", "speech.finish", "speech.playback" -> "speech.status.response"
             else -> return@post
         }
         try { notificationPending[send(type, payload, requestId)] = expected } catch (_: Exception) { fail("unreachable") }
@@ -89,6 +92,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         return requestId
     }
     fun call(type: String, payload: Map<String, Any> = emptyMap()): String = notification(type, payload)
+    fun speech(type: String, payload: Map<String, Any> = emptyMap()): String = notification(type, payload)
     fun close() { closed = true; desired = false; generation++; socket?.close(); timeout?.cancel(); retry?.cancel(); heartbeat?.cancel(); queue.close() }
     private fun update(status: RemoteStatus, problem: String = "") {
         mutableState.value = mutableState.value.copy(status = status, problem = problem, paired = credential != null, enabled = credential?.enabled == true)
@@ -132,11 +136,11 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     private fun receive(raw: String) {
         try {
             val m = RemoteProtocol.parse(raw)
-            if (m.type.startsWith("notification.") || m.type.startsWith("call.")) {
+            if (m.type.startsWith("notification.") || m.type.startsWith("call.") || m.type.startsWith("speech.")) {
                 check(authenticated)
                 val expected = notificationPending.remove(m.correlationId) ?: error("Uncorrelated notification response")
-                check(m.type == expected || (m.type == "notification.error" && expected.startsWith("notification.")) || (m.type == "call.error" && expected.startsWith("call.")))
-                if (m.type.startsWith("call.")) mutableCalls.tryEmit(m) else mutableNotifications.tryEmit(m); return
+                check(m.type == expected || (m.type == "notification.error" && expected.startsWith("notification.")) || (m.type == "call.error" && expected.startsWith("call.")) || (m.type == "speech.error" && expected.startsWith("speech.")))
+                if (m.type.startsWith("speech.")) mutableSpeech.tryEmit(m) else if (m.type.startsWith("call.")) mutableCalls.tryEmit(m) else mutableNotifications.tryEmit(m); return
             }
             when (m.type) {
                 "server.hello" -> {

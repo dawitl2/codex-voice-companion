@@ -11,6 +11,7 @@ import java.io.IOException
 import com.codexvoice.app.core.remote.ClientState
 import com.codexvoice.app.core.notifications.*
 import com.codexvoice.app.core.calls.*
+import com.codexvoice.app.core.speech.*
 
 data class DashboardState(
     val current: Task? = null, val history: List<Task> = emptyList(),
@@ -23,6 +24,7 @@ class DashboardViewModel(
     private val calls: CallStateMachine = CallStateMachine(),
     private val notifications: NotificationController? = null,
     private val liveCalls: LiveCallController? = null,
+    private val speech: SpeechSessionController? = null,
 ) : ViewModel() {
     private val basicDashboard = combine(tasks.current, tasks.history, tasks.connection) { task, history, connection ->
         DashboardState(task, sortedHistory(history), connection)
@@ -38,7 +40,13 @@ class DashboardViewModel(
     val notificationState = notifications?.state ?: MutableStateFlow(NotificationUiState()).asStateFlow()
     val liveCallState = liveCalls?.state ?: MutableStateFlow(LiveCallState()).asStateFlow()
     val callSettingsStatus = liveCalls?.status ?: MutableStateFlow("Call invitations disabled").asStateFlow()
+    val speechState = SpeechRuntime.state
+    fun repeatSummary() { speech?.repeat() }
+    fun stopSpeaking() { speech?.stop() }
+    fun finishSpeaking() { speech?.finishSpeaking() }
+    fun setSpeech(value: UserPreferences) = save { settings.setSpeech(value) }
     fun setCallInvitations(value: Boolean) = save { settings.setCallInvitations(value) }
+    fun openLiveCall() { liveCalls?.openCurrent() }
     fun answerLiveCall(permitted: Boolean) { liveCalls?.answer(permitted) }
     fun declineLiveCall() { liveCalls?.decline() }
     fun endLiveCall() { liveCalls?.end() }
@@ -72,7 +80,7 @@ class DashboardViewModel(
     fun disconnectPc() { (tasks as? CompanionTaskRepository)?.disconnect() }
     fun forgetPc() { (tasks as? CompanionTaskRepository)?.forget() }
     fun refreshPc() { (tasks as? CompanionTaskRepository)?.refresh() }
-    override fun onCleared() { (tasks as? CompanionTaskRepository)?.close(); super.onCleared() }
+    override fun onCleared() { speech?.close(); (tasks as? CompanionTaskRepository)?.close(); super.onCleared() }
     fun setTheme(mode: ThemeMode) = save { settings.setTheme(mode) }
     fun setCalling(completion: Boolean, failure: Boolean, approval: Boolean) =
         save { settings.setCalling(completion, failure, approval) }

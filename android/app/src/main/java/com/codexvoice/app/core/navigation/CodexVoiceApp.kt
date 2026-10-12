@@ -53,6 +53,7 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
     val notification by viewModel.notificationState.collectAsStateWithLifecycle()
     val liveCall by viewModel.liveCallState.collectAsStateWithLifecycle()
     val callSettingsStatus by viewModel.callSettingsStatus.collectAsStateWithLifecycle()
+    val speechState by viewModel.speechState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var pendingEnable by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -107,7 +108,8 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
             LiveCallScreen(liveCall, dashboard.remote, answerAudio, viewModel::declineLiveCall, viewModel::endLiveCall,
                 viewModel::muteLiveCall, viewModel::speakerLiveCall, viewModel::testLiveAudio, viewModel::dismissLiveCall, viewModel::liveCallResults,
                 { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))) },
-                ringEnabled = prefs.notificationsEnabled && prefs.notificationSound)
+                ringEnabled = prefs.notificationsEnabled && prefs.notificationSound, speech = speechState,
+                onRepeat = viewModel::repeatSummary, onStopSpeech = viewModel::stopSpeaking, onFinishSpeech = viewModel::finishSpeaking)
         } else if (notification.alert != null) {
             BackHandler { viewModel.dismissNotification() }
             TaskAlertScreen(notification, dashboard.remote, viewModel::viewNotificationResults, viewModel::dismissNotification, viewModel::connectPc)
@@ -141,13 +143,13 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding),
                     enterTransition = { fadeIn(tween(if (reduceMotion) 0 else 180)) },
                     exitTransition = { fadeOut(tween(if (reduceMotion) 0 else 120)) }) {
-                    composable("home") { DashboardScreen(dashboard, reduceMotion, viewModel::previewCall, { navigate("history") }, { navigate("settings") }) }
+                    composable("home") { DashboardScreen(dashboard, reduceMotion, viewModel::previewCall, { navigate("history") }, { navigate("settings") }, viewModel::openLiveCall) }
                     composable("history") { HistoryScreen(dashboard.history, reduceMotion, viewModel::clearHistory, viewModel::resetDemo, dashboard.demoMode, dashboard.connection, dashboard.remote?.snapshot?.mode == "mock") }
                     composable("settings") { SettingsScreen(prefs, viewModel::setTheme, viewModel::setCalling, viewModel::setReduceMotion,
                         dashboard.remote, dashboard.demoMode, viewModel::selectDemo, viewModel::pair, viewModel::connectPc, viewModel::disconnectPc, viewModel::forgetPc,
                         notification, changeNotifications, { context.startActivity(TaskNotifications.systemSettings(context)) },
                         { attention -> context.startActivity(TaskNotifications.channelsSettings(context, attention, prefs.pushPreferences())) },
-                        callSettingsStatus, viewModel::setCallInvitations) }
+                        callSettingsStatus, viewModel::setCallInvitations, speechState, viewModel::setSpeech) }
                 }
             }
         }

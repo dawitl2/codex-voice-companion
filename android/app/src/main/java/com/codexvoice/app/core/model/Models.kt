@@ -20,6 +20,11 @@ data class UserPreferences(
     val notificationSound: Boolean = true,
     val notificationVibration: Boolean = true,
     val callInvitations: Boolean = false,
+    val spokenSummaries: Boolean = true,
+    val speechVoice: String = "",
+    val speechRate: Float = 1f,
+    val speechPitch: Float = 1f,
+    val autoSpeakSummary: Boolean = true,
 )
 fun TaskStatus.label() = when (this) {
     TaskStatus.RUNNING -> "Running"

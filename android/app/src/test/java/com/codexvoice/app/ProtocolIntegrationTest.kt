@@ -42,9 +42,11 @@ class ProtocolIntegrationTest {
         val first = RemoteClient(scope, sockets, store); var second: RemoteClient? = null
         val notificationResponses = ConcurrentLinkedQueue<ServerMessage>()
         val callResponses = ConcurrentLinkedQueue<ServerMessage>()
+        val speechResponses = ConcurrentLinkedQueue<ServerMessage>()
         var mediaSocket: WebSocket? = null
         scope.launch(start = CoroutineStart.UNDISPATCHED) { first.notifications.collect { notificationResponses.add(it) } }
         scope.launch(start = CoroutineStart.UNDISPATCHED) { first.calls.collect { callResponses.add(it) } }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { first.speech.collect { speechResponses.add(it) } }
         suspend fun until(predicate: () -> Boolean) { withTimeout(15000) { while (!predicate()) delay(20) } }
         try {
             first.foreground(true); first.pair(fixture.get("endpoint").asString, fixture.get("code").asString)
@@ -84,8 +86,22 @@ class ProtocolIntegrationTest {
                 override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) { val frame = AudioFrames.decode(bytes.toByteArray(), 1); assertTrue(frame.level > 0); toneFrames.incrementAndGet() }
             })
             until { mediaMessages.any { it["type"].asString == "media.ready" } }
+            first.speech("speech.listening",mapOf("callId" to call.callId,"enabled" to true))
+            until { speechResponses.any { it.type=="speech.status.response" } }
+            first.speech("speech.summary.request",mapOf("callId" to call.callId))
+            until { speechResponses.any { it.type=="speech.summary.response" } }
+            assertTrue(speechResponses.first { it.type=="speech.summary.response" }.payload["text"].asString.startsWith("Simulated task."))
             repeat(20) { index -> val bytes = ByteArray(660); AudioFrames.encode(bytes, ShortArray(320) { 4000 }, index.toLong(), index * 20L); assertTrue(mediaSocket!!.send(bytes.toByteString())); delay(20) }
             until { mediaMessages.any { it["type"].asString == "media.metrics" && it["uplinkFrames"].asInt >= 20 } }
+            first.speech("speech.finish",mapOf("callId" to call.callId))
+            until {
+                first.speech("speech.status.request",mapOf("callId" to call.callId,"afterSequence" to 0))
+                Thread.sleep(300)
+                speechResponses.any { it.type=="speech.status.response" && it.payload["utterances"].asJsonArray.size()>0 }
+            }
+            val transcript=speechResponses.first { it.type=="speech.status.response" && it.payload["utterances"].asJsonArray.size()>0 }.payload["utterances"].asJsonArray.first().asJsonObject
+            assertEquals("Synthetic protocol fixture transcript",transcript["text"].asString)
+            assertTrue(transcript["final"].asBoolean)
             mediaSocket!!.send("""{"version":1,"type":"media.tone"}""")
             until { toneFrames.get() >= 10 }
             mediaSocket!!.send("""{"version":1,"type":"media.mute","muted":true}""")
@@ -96,6 +112,8 @@ class ProtocolIntegrationTest {
             assertEquals(receivedBeforeMute, mediaMessages.last { it["type"].asString == "media.metrics" }["uplinkFrames"].asInt)
             mediaSocket!!.send("""{"version":1,"type":"media.end"}""")
             until { mediaMessages.any { it["type"].asString == "media.ended" } }
+            first.speech("speech.status.request",mapOf("callId" to call.callId,"afterSequence" to 0))
+            until { speechResponses.any { it.type=="speech.error" && it.payload["code"].asString=="call_not_active" } }
             val epoch = first.state.value.snapshot!!.epoch; first.close()
             val resumed = RemoteClient(scope, sockets, store); second = resumed; resumed.foreground(true)
             until { resumed.state.value.status == RemoteStatus.CONNECTED }

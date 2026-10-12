@@ -12,9 +12,10 @@ import type { NotificationDispatcher } from '../notifications/NotificationDispat
 import { CallError, type CallSessionManager } from '../calls/CallSessionManager.js';
 import type { MediaTransportServer } from '../calls/MediaTransportServer.js';
 import { PCM } from '../calls/AudioProtocol.js';
+import type { SpeechSessionCoordinator } from '../speech/SpeechSessionCoordinator.js';
 
 export interface NotificationAccess { registry: DeviceRegistry; dispatcher: NotificationDispatcher; projectId: string | undefined }
-export interface CallAccess { manager: CallSessionManager; media: MediaTransportServer }
+export interface CallAccess { manager: CallSessionManager; media: MediaTransportServer; speech?: SpeechSessionCoordinator }
 
 export interface RemoteAccess {
   authenticate(deviceId: string, token: string, identity: string): boolean;
@@ -149,7 +150,20 @@ export class RemoteServer {
           return;
         }
         if (!session.deviceId) throw new ProtocolError('authentication_required');
-        if (m.type.startsWith('call.')) {
+        if (m.type.startsWith('speech.')) {
+          try {
+            const speech = this.calls?.speech; if (!speech) throw new CallError('speech_disabled');
+            const p = m.payload as Record<string, unknown>; const callId = String(p.callId);
+            if (m.type === 'speech.summary.request') this.send(session, 'speech.summary.response', speech.summary(session.deviceId, callId), m.id);
+            else {
+              const response = m.type === 'speech.listening' ? speech.listening(session.deviceId, callId, p.enabled as boolean) :
+                m.type === 'speech.playback' ? speech.playback(session.deviceId, callId, String(p.state)) :
+                m.type === 'speech.finish' ? speech.finish(session.deviceId, callId) : speech.status(session.deviceId, callId, Number(p.afterSequence));
+              this.send(session, 'speech.status.response', response, m.id);
+            }
+          } catch (error) { this.send(session, 'speech.error', { code: error instanceof CallError ? error.code : 'speech_unavailable' }, m.id); }
+        }
+        else if (m.type.startsWith('call.')) {
           try {
             const calls = this.calls; if (!calls) throw new CallError('calls_disabled');
             const p = m.payload as Record<string, unknown>; let call = null;
@@ -158,6 +172,7 @@ export class RemoteServer {
             else if (m.type === 'call.accept' || m.type === 'call.resume') this.send(session, 'call.media.response', { ...calls.manager.accept(session.deviceId, String(p.callId), identity, m.type === 'call.resume'), mediaUrl: calls.media.endpoint, format: PCM }, m.id);
             else {
               if (m.type === 'call.offer.request') call = calls.manager.byEvent(session.deviceId, String(p.eventId));
+              else if (m.type === 'call.current.request') call = calls.manager.current(session.deviceId);
               else if (m.type === 'call.decline') call = calls.manager.decline(session.deviceId, String(p.callId));
               else if (m.type === 'call.end') call = calls.manager.end(session.deviceId, String(p.callId));
               else { if (m.type === 'call.mute') calls.manager.mute(session.deviceId, String(p.callId), p.muted as boolean);

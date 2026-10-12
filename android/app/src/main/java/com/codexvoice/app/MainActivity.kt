@@ -17,6 +17,7 @@ import kotlinx.coroutines.*
 import com.codexvoice.app.core.notifications.NotificationController
 import com.codexvoice.app.core.notifications.TaskNotifications
 import com.codexvoice.app.core.calls.LiveCallController
+import com.codexvoice.app.core.speech.SpeechSessionController
 import android.content.Intent
 
 internal val android.content.Context.preferencesStore by preferencesDataStore(name = "user_preferences")
@@ -37,7 +38,8 @@ class MainActivity : ComponentActivity() {
                     { value -> if (!connectionPrefs.edit().putBoolean("demo", value).commit()) throw java.io.IOException("Could not save mode") })
                 val preferences = DataStorePreferencesRepository(applicationContext.preferencesStore)
                 return DashboardViewModel(repository, preferences, notifications = NotificationController(applicationContext, client, preferences, remoteScope),
-                    liveCalls = LiveCallController(applicationContext, client, preferences, remoteScope)) as T
+                    liveCalls = LiveCallController(applicationContext, client, preferences, remoteScope),
+                    speech = SpeechSessionController(applicationContext, client, preferences, remoteScope)) as T
             }
         }
         setContent {

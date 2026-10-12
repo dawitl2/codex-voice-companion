@@ -8,7 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -18,6 +18,7 @@ import com.codexvoice.app.core.designsystem.*
 import com.codexvoice.app.core.model.*
 import com.codexvoice.app.core.remote.ClientState
 import com.codexvoice.app.core.notifications.NotificationUiState
+import com.codexvoice.app.core.speech.*
 
 @Composable
 fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
@@ -25,7 +26,7 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
     remote: ClientState? = null, demoMode: Boolean = true, onDemo: (Boolean) -> Unit = {},
     onPair: (String, String) -> Unit = { _, _ -> }, onConnect: () -> Unit = {}, onDisconnect: () -> Unit = {}, onForget: () -> Unit = {},
     notificationState: NotificationUiState = NotificationUiState(), onNotifications: (UserPreferences) -> Unit = {}, onSystemSettings: () -> Unit = {},
-    onChannelSettings: (Boolean) -> Unit = {}, callStatus: String = "Call invitations disabled", onCallInvitations: (Boolean) -> Unit = {}) {
+    onChannelSettings: (Boolean) -> Unit = {}, callStatus: String = "Call invitations disabled", onCallInvitations: (Boolean) -> Unit = {}, speech: SpeechUiState = SpeechUiState(), onSpeech: (UserPreferences) -> Unit = {}) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { ScreenHeading("Settings", "") }
         item { Eyebrow("Appearance") }
@@ -71,14 +72,30 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
                 Text("Preferred language · English", style = MaterialTheme.typography.titleMedium)
                 PreferenceSwitch("Offer audio calls", "Task alerts can offer an authenticated private audio session. Answer explicitly starts the microphone.", p.callInvitations, onCallInvitations)
                 Text(callStatus, style = MaterialTheme.typography.bodySmall)
-                Text("AI voice coming later", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PreferenceSwitch("Spoken summaries", "Offline English voice", p.spokenSummaries) { onSpeech(p.copy(spokenSummaries=it)) }
+                PreferenceSwitch("Automatic summary", "Read the summary after Answer", p.autoSpeakSummary) { onSpeech(p.copy(autoSpeakSummary=it)) }
+                var voicesOpen by remember { mutableStateOf(false) }
+                Box {
+                    TextButton({ voicesOpen=true },enabled=speech.voices.isNotEmpty()) { Text(if(p.speechVoice.isEmpty()) "Default offline voice" else speech.voices.find { it.name==p.speechVoice }?.label ?: "Selected offline voice") }
+                    DropdownMenu(voicesOpen,{voicesOpen=false}) {
+                        speech.voices.forEach { voice -> DropdownMenuItem(text={Text(voice.label)},onClick={voicesOpen=false;onSpeech(p.copy(speechVoice=voice.name))}) }
+                    }
+                }
+                if(speech.voices.isEmpty()) Text("Offline voice availability is checked when you answer.",style=MaterialTheme.typography.bodySmall)
+                Text("Speech rate",style=MaterialTheme.typography.bodyMedium)
+                var rate by remember(p.speechRate) { mutableFloatStateOf(p.speechRate) }
+                Slider(rate,{rate=it},valueRange=.5f..1.5f,steps=3,onValueChangeFinished={onSpeech(p.copy(speechRate=rate))},modifier=Modifier.semantics{contentDescription="Speech rate"})
+                Text("Speech pitch",style=MaterialTheme.typography.bodyMedium)
+                var pitch by remember(p.speechPitch) { mutableFloatStateOf(p.speechPitch) }
+                Slider(pitch,{pitch=it},valueRange=.5f..1.5f,steps=3,onValueChangeFinished={onSpeech(p.copy(speechPitch=pitch))},modifier=Modifier.semantics{contentDescription="Speech pitch"})
+                Text("English · Offline voices only",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         item { Eyebrow("About") }
         item {
             SettingsSurface {
                 Text("Codex Voice", style = MaterialTheme.typography.titleMedium)
-                Text("Version 0.6.0 · Experimental companion")
+                Text("Version 0.7.0 · Experimental companion")
             }
         }
     }

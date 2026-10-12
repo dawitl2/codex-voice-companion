@@ -18,7 +18,7 @@ export class MediaTransportServer {
   private readonly ended: { callId: string; metrics: Metrics }[] = [];
   private readonly unsubscribe: () => void;
   private closed = false;
-  constructor(private readonly calls: CallSessionManager, remoteEndpoint: string) {
+  constructor(private readonly calls: CallSessionManager, remoteEndpoint: string, private readonly receivePcm?: (call: CallSession, pcm: Buffer, level: number) => void) {
     const url = new URL(remoteEndpoint); url.pathname = '/media'; this.endpoint = url.href;
     this.unsubscribe = calls.onChange(call => {
       const session = this.sessions.get(call.callId); if (!session) return;
@@ -58,8 +58,11 @@ export class MediaTransportServer {
           const frame = validateAudioFrame(Buffer.from(data as Buffer), 0);
           const timely = session.sequence.accept(frame.sequence, frame.timestamp, performance.now());
           session.metrics.droppedFrames = session.sequence.dropped; session.metrics.relativeDelayMs = Math.round(session.sequence.relativeDelayMs);
-          if (timely && !session.call.muted) { session.metrics.uplinkFrames++; session.metrics.inputLevel = frame.level; session.lastAudio = performance.now(); }
-          // No raw audio buffer is retained or logged. Later consumers belong behind this boundary.
+          if (timely && !session.call.muted) {
+            session.metrics.uplinkFrames++; session.metrics.inputLevel = frame.level; session.lastAudio = performance.now();
+            // Optional local speech consumer owns bounded copies, never the transport buffer.
+            try { this.receivePcm?.(session.call, Buffer.from(data as Buffer).subarray(20), frame.level); } catch { /* Speech failure cannot take down media. */ }
+          }
         } else this.control(session, JSON.parse(data.toString()) as Record<string, unknown>);
       } catch (error) {
         if (error instanceof Error && error.message === 'audio_sequence_error') session.metrics.sequenceErrors++;

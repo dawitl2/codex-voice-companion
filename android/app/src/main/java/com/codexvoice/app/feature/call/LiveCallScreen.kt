@@ -24,11 +24,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.codexvoice.app.core.calls.*
 import com.codexvoice.app.core.remote.ClientState
+import com.codexvoice.app.core.speech.*
 import kotlinx.coroutines.delay
 
 @Composable fun LiveCallScreen(state: LiveCallState, remote: ClientState?, onAnswer: () -> Unit, onDecline: () -> Unit,
     onEnd: () -> Unit, onMute: () -> Unit, onSpeaker: () -> Unit, onTone: () -> Unit,
-    onReturn: () -> Unit, onResults: () -> Unit, onPermissions: () -> Unit, ringEnabled: Boolean = false) {
+    onReturn: () -> Unit, onResults: () -> Unit, onPermissions: () -> Unit, ringEnabled: Boolean = false,
+    speech: SpeechUiState = SpeechUiState(), onRepeat: () -> Unit = {}, onStopSpeech: () -> Unit = {}, onFinishSpeech: () -> Unit = {}) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val ringer = remember(state.offer?.callId) { IncomingCallRinger(context, state.offer?.expiresAt ?: 0) }
@@ -66,7 +68,7 @@ import kotlinx.coroutines.delay
                 else -> "Call ended"
             }, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (state.phase == LivePhase.OFFERED) Text(when (state.offer?.kind) {
-                "failed" -> "Task failed"; "approval" -> "Approval needs attention"; "interrupted" -> "Task interrupted"; else -> "Task completed"
+                "failed" -> "Task failed"; "approval" -> "Approval needs attention"; "interrupted" -> "Task interrupted"; "review" -> "Existing task review"; else -> "Task completed"
             }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (state.phase == LivePhase.ACTIVE) {
                 Spacer(Modifier.height(12.dp))
@@ -78,7 +80,7 @@ import kotlinx.coroutines.delay
             }
             Spacer(Modifier.height(12.dp))
             Text(if (state.offer?.mode == "mock") "Simulated task · Audio only" else "Private audio", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("AI voice not available yet", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Local speech · Commands stay on the PC", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (state.problem.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
                 Text(state.problem, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
@@ -100,6 +102,32 @@ import kotlinx.coroutines.delay
                     CallControl("Cancel call", Icons.Default.CallEnd, onEnd, Color(0xFFFF453A), Color.White)
                 }
                 LivePhase.ACTIVE -> {
+                    Text(speechLabel(state.capturing,state.muted,speech), style = MaterialTheme.typography.titleMedium)
+                    if (speech.summary.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Task summary",style = MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(speech.summary,style=MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
+                    for (utterance in speech.transcript.takeLast(3)) {
+                        Spacer(Modifier.height(8.dp))
+                        Surface(shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerHigh) {
+                            Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(6.dp)) {
+                                Text("Recognized",style=MaterialTheme.typography.labelLarge,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(utterance.text,style=MaterialTheme.typography.bodyLarge)
+                            }
+                        }
+                    }
+                    if(speech.error.isNotEmpty()) Text(speechErrorText(speech.error),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        TextButton(onRepeat,enabled=speech.summary.isNotEmpty() && speech.ttsStatus=="ready") { Text("Repeat summary") }
+                        TextButton(onStopSpeech,enabled=speech.speaking || speech.phase=="speaking") { Text("Stop speaking") }
+                    }
+                    TextButton(onFinishSpeech,enabled=state.capturing && !speech.speaking) { Text("Finish speaking") }
+                    Spacer(Modifier.height(20.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
                         CallControl(if (state.muted) "Unmute" else "Mute", if (state.muted) Icons.Default.MicOff else Icons.Default.Mic,
                             onMute, if (state.muted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerHigh,
