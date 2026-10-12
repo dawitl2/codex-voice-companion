@@ -11,12 +11,15 @@ import { DeviceRegistry, WindowsRegistryStorage } from './remote/DeviceRegistry.
 import { NotificationDispatcher } from './notifications/NotificationDispatcher.js';
 import { NotificationDeliveryStore } from './notifications/NotificationDeliveryStore.js';
 import { FirebasePushProvider } from './notifications/FirebasePushProvider.js';
+import { CallSessionManager } from './calls/CallSessionManager.js';
+import { CallEventCoordinator } from './calls/CallEventCoordinator.js';
+import { MediaTransportServer } from './calls/MediaTransportServer.js';
 
 async function main(): Promise<void> {
   if (Number(process.versions.node.split('.')[0]) !== 24) throw new Error('Node.js 24 LTS required; use scripts/run.ps1 or install Node 24');
   const args = process.argv.slice(2);
-  if (args.includes('--help')) { console.log('Usage: node dist/src/index.js [--mock | --real] [--workspace-write] [--remote] [--notifications]\nRemote requires CODEX_VOICE_REMOTE_URL=wss://actual-pc.actual-tailnet.ts.net/remote; optional CODEX_VOICE_REMOTE_PORT=8787.\nNotifications require --remote, CODEX_VOICE_FIREBASE_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS and CODEX_VOICE_FIREBASE_SPARK_CONFIRMED=1.'); return; }
-  if (args.some(x => !['--mock','--real','--workspace-write','--remote','--notifications'].includes(x)) || (args.includes('--mock') && args.includes('--real')) || (args.includes('--notifications') && !args.includes('--remote'))) throw new Error('Invalid CLI options; use --help');
+  if (args.includes('--help')) { console.log('Usage: node dist/src/index.js [--mock | --real] [--workspace-write] [--remote] [--notifications] [--calls]\nRemote requires CODEX_VOICE_REMOTE_URL=wss://actual-pc.actual-tailnet.ts.net/remote; optional CODEX_VOICE_REMOTE_PORT=8787.\nNotifications require --remote, CODEX_VOICE_FIREBASE_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS and CODEX_VOICE_FIREBASE_SPARK_CONFIRMED=1. Calls require --remote and explicit phone opt-in; no AI speech.'); return; }
+  if (args.some(x => !['--mock','--real','--workspace-write','--remote','--notifications','--calls'].includes(x)) || (args.includes('--mock') && args.includes('--real')) || ((args.includes('--notifications') || args.includes('--calls')) && !args.includes('--remote'))) throw new Error('Invalid CLI options; use --help');
   const mode = args.includes('--real') ? 'real' : 'mock';
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
   const cwd = projectDirectory(root); const directory = resolve(root, '.runtime', mode);
@@ -25,6 +28,7 @@ async function main(): Promise<void> {
   const bridge = new Bridge(mode, transport, directory, args.includes('--workspace-write') ? 'workspace-write' : 'read-only');
   if (transport instanceof MockTransport) transport.hydrate(bridge.store.state);
   let remote: RemoteServer | undefined; let devices: DeviceRegistry | undefined; let notifications: NotificationDispatcher | undefined;
+  let calls: CallSessionManager | undefined, coordinator: CallEventCoordinator | undefined, media: MediaTransportServer | undefined;
   try {
     if (args.includes('--remote')) {
       const endpoint = process.env.CODEX_VOICE_REMOTE_URL;
@@ -32,11 +36,16 @@ async function main(): Promise<void> {
       devices = new DeviceRegistry(new WindowsRegistryStorage(resolve(root, '.runtime', 'remote', mode)));
       const provider = args.includes('--notifications') ? new FirebasePushProvider(root) : undefined;
       notifications = new NotificationDispatcher(bridge, devices, new NotificationDeliveryStore(new WindowsRegistryStorage(resolve(root, '.runtime', 'remote', mode), 'notifications.dpapi')), provider);
+      if (args.includes('--calls')) {
+        calls = new CallSessionManager(new WindowsRegistryStorage(resolve(root, '.runtime', 'remote', mode), 'calls.dpapi'), devices, Date.now,
+          call => bridge.store.state.approvals.some(a => a.id === call.approvalId && a.status === 'pending' && Date.parse(a.expiresAt) > Date.now()));
+        coordinator = new CallEventCoordinator(bridge, devices, calls); media = new MediaTransportServer(calls, endpoint);
+      }
       remote = new RemoteServer(bridge, devices, endpoint, Number(process.env.CODEX_VOICE_REMOTE_PORT ?? 8787), 15000, 20000,
-        { registry: devices, dispatcher: notifications, projectId: process.env.CODEX_VOICE_FIREBASE_PROJECT_ID });
+        { registry: devices, dispatcher: notifications, projectId: process.env.CODEX_VOICE_FIREBASE_PROJECT_ID }, calls && media ? { manager: calls, media } : undefined);
       await remote.start(); console.log(`Remote monitor: 127.0.0.1:${remote.address} through ${remote.endpoint.href}`);
     }
-    await runTerminal(bridge, remote, devices, notifications);
-  } finally { await remote?.close(); await notifications?.close(); await bridge.close(); }
+    await runTerminal(bridge, remote, devices, notifications, calls, media);
+  } finally { coordinator?.close(); await remote?.close(); await media?.close(); calls?.close(); await notifications?.close(); await bridge.close(); }
 }
 main().catch(error => { console.error(errorText(error)); process.exitCode = 1; });

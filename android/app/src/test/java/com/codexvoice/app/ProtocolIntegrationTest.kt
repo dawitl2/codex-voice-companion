@@ -13,6 +13,9 @@ import com.codexvoice.app.core.notifications.PushParser
 import com.codexvoice.app.core.notifications.PushPreferences
 import kotlinx.coroutines.flow.collect
 import java.util.concurrent.ConcurrentLinkedQueue
+import com.codexvoice.app.core.calls.*
+import okio.ByteString.Companion.toByteString
+import java.util.concurrent.atomic.AtomicInteger
 
 class ProtocolIntegrationTest {
     @Test fun actualKotlinClientPairsWithNodeBridgeCompletesReconnectsAndIsRevoked() = runBlocking {
@@ -38,11 +41,16 @@ class ProtocolIntegrationTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default); val store = MemoryCredentials()
         val first = RemoteClient(scope, sockets, store); var second: RemoteClient? = null
         val notificationResponses = ConcurrentLinkedQueue<ServerMessage>()
+        val callResponses = ConcurrentLinkedQueue<ServerMessage>()
+        var mediaSocket: WebSocket? = null
         scope.launch(start = CoroutineStart.UNDISPATCHED) { first.notifications.collect { notificationResponses.add(it) } }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { first.calls.collect { callResponses.add(it) } }
         suspend fun until(predicate: () -> Boolean) { withTimeout(15000) { while (!predicate()) delay(20) } }
         try {
             first.foreground(true); first.pair(fixture.get("endpoint").asString, fixture.get("code").asString)
             until { first.state.value.status == RemoteStatus.CONNECTED }
+            first.call("call.preferences.update", mapOf("enabled" to true))
+            until { callResponses.any { it.type == "call.preferences.response" && it.payload["enabled"].asBoolean } }
             first.notification("notification.register", mapOf("fid" to ("c" + "A".repeat(21)), "projectId" to "codex-voice-example", "preferences" to PushPreferences(enabled = true).server()))
             until { notificationResponses.any { it.type == "notification.status.response" && it.payload["registered"].asBoolean } }
             until { first.state.value.snapshot?.turns?.any { it.status == "completed" } == true }
@@ -59,6 +67,35 @@ class ProtocolIntegrationTest {
             assertEquals(first.state.value.snapshot!!.turns.single().id, details["turnId"].asString)
             first.notification("notification.receipt", mapOf("eventId" to event.eventId, "stage" to "received"))
             until { notificationResponses.any { it.type == "notification.receipt.response" } }
+            first.call("call.offer.request", mapOf("eventId" to event.eventId))
+            until { callResponses.any { it.type == "call.status.response" } }
+            val call = CallWire.offer(callResponses.first { it.type == "call.status.response" }.payload.getAsJsonObject("call"))
+            assertEquals(event.eventId, call.eventId); assertEquals("offered", call.state)
+            first.call("call.accept", mapOf("callId" to call.callId))
+            until { callResponses.any { it.type == "call.media.response" } }
+            val grant = CallWire.grant(callResponses.first { it.type == "call.media.response" }.payload)
+            val mediaMessages = ConcurrentLinkedQueue<com.google.gson.JsonObject>(); val toneFrames = AtomicInteger(0)
+            // Real separate Node media endpoint and Kotlin codec; microphone input here is synthetic.
+            mediaSocket = http.newWebSocket(Request.Builder().url("ws://127.0.0.1:$port/media")
+                .header("X-Forwarded-Proto", "https").header("X-Forwarded-Host", "test.example.ts.net")
+                .header("Tailscale-User-Login", "fixture@example.invalid").header("Authorization", "Bearer ${grant.token}").build(), object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) { webSocket.send(com.google.gson.Gson().toJson(mapOf("version" to 1, "type" to "media.hello", "callId" to call.callId, "format" to CallWire.format))) }
+                override fun onMessage(webSocket: WebSocket, text: String) { mediaMessages.add(JsonParser.parseString(text).asJsonObject) }
+                override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) { val frame = AudioFrames.decode(bytes.toByteArray(), 1); assertTrue(frame.level > 0); toneFrames.incrementAndGet() }
+            })
+            until { mediaMessages.any { it["type"].asString == "media.ready" } }
+            repeat(20) { index -> val bytes = ByteArray(660); AudioFrames.encode(bytes, ShortArray(320) { 4000 }, index.toLong(), index * 20L); assertTrue(mediaSocket!!.send(bytes.toByteString())); delay(20) }
+            until { mediaMessages.any { it["type"].asString == "media.metrics" && it["uplinkFrames"].asInt >= 20 } }
+            mediaSocket!!.send("""{"version":1,"type":"media.tone"}""")
+            until { toneFrames.get() >= 10 }
+            mediaSocket!!.send("""{"version":1,"type":"media.mute","muted":true}""")
+            until { mediaMessages.any { it["type"].asString == "media.metrics" && it["muted"].asBoolean } }
+            val receivedBeforeMute = mediaMessages.last { it["type"].asString == "media.metrics" }["uplinkFrames"].asInt
+            repeat(5) { index -> val bytes = ByteArray(660); AudioFrames.encode(bytes, ShortArray(320) { 4000 }, 20L + index, 400L + index * 20); mediaSocket!!.send(bytes.toByteString()); delay(20) }
+            delay(1100)
+            assertEquals(receivedBeforeMute, mediaMessages.last { it["type"].asString == "media.metrics" }["uplinkFrames"].asInt)
+            mediaSocket!!.send("""{"version":1,"type":"media.end"}""")
+            until { mediaMessages.any { it["type"].asString == "media.ended" } }
             val epoch = first.state.value.snapshot!!.epoch; first.close()
             val resumed = RemoteClient(scope, sockets, store); second = resumed; resumed.foreground(true)
             until { resumed.state.value.status == RemoteStatus.CONNECTED }
@@ -67,6 +104,6 @@ class ProtocolIntegrationTest {
             File(fixture.get("control").asString).writeText("revoke")
             until { resumed.state.value.status == RemoteStatus.AUTH_FAILED }
             assertFalse(resumed.state.value.paired); assertNull(store.value)
-        } finally { first.close(); second?.close(); scope.cancel(); http.dispatcher.executorService.shutdown(); http.connectionPool.evictAll() }
+        } finally { mediaSocket?.cancel(); first.close(); second?.close(); scope.cancel(); http.dispatcher.executorService.shutdown(); http.connectionPool.evictAll() }
     }
 }

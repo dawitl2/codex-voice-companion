@@ -1,4 +1,4 @@
-param([ValidateSet('mock','real')][string]$Mode = 'mock', [switch]$SparkConfirmed,
+param([ValidateSet('mock','real')][string]$Mode = 'mock', [switch]$SparkConfirmed, [switch]$Calls,
     [string]$CredentialPath = "$env:USERPROFILE\.codex-voice\firebase\service-account.json")
 $ErrorActionPreference = 'Stop'
 $notificationRoot = Split-Path $PSScriptRoot -Parent
@@ -25,7 +25,9 @@ try {
     $env:CODEX_VOICE_REMOTE_PORT = '8787'
     & .\scripts\run.ps1 build
     if ($LASTEXITCODE -ne 0) { throw 'Bridge build failed' }
-    & .\scripts\run.ps1 start "--$Mode" --remote --notifications
+    $bridgeArguments = @("--$Mode", '--remote', '--notifications')
+    if ($Calls) { $bridgeArguments += '--calls' }
+    & .\scripts\run.ps1 start @bridgeArguments
     if ($LASTEXITCODE -ne 0) { throw 'Notification bridge startup failed; inspect the fixed diagnostic above' }
 } finally {
     foreach ($variableName in $previousNotificationEnvironment.Keys) { [Environment]::SetEnvironmentVariable($variableName, $previousNotificationEnvironment[$variableName], 'Process') }

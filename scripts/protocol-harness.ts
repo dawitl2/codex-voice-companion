@@ -7,6 +7,9 @@ import { RemoteServer } from '../src/remote/RemoteServer.js';
 import { DeviceRegistry } from '../src/remote/DeviceRegistry.js';
 import { NotificationDispatcher } from '../src/notifications/NotificationDispatcher.js';
 import { NotificationDeliveryStore } from '../src/notifications/NotificationDeliveryStore.js';
+import { CallSessionManager } from '../src/calls/CallSessionManager.js';
+import { CallEventCoordinator } from '../src/calls/CallEventCoordinator.js';
+import { MediaTransportServer } from '../src/calls/MediaTransportServer.js';
 
 const directory = resolve('.runtime', 'protocol-integration'); mkdirSync(directory, { recursive: true });
 const metadata = join(directory, 'fixture.json'), control = join(directory, 'control.txt');
@@ -22,11 +25,15 @@ const bridge = new Bridge('mock', new MockTransport(undefined, 15), stateDirecto
 let deliveryData: unknown = [];
 const dispatcher = new NotificationDispatcher(bridge, registry, new NotificationDeliveryStore({ load: () => deliveryData, save: value => { deliveryData = structuredClone(value); } }),
   { send: async (_fid, payload) => { writeFileSync(pushFile, JSON.stringify(payload), { mode: 0o600 }); } });
-const remote = new RemoteServer(bridge, registry, 'wss://test.example.ts.net/remote', 0, 15000, 20000, { registry, dispatcher, projectId: 'codex-voice-example' });
+let callData: unknown = [];
+const calls = new CallSessionManager({ load: () => callData, save: value => { callData = structuredClone(value); } }, registry);
+const coordinator = new CallEventCoordinator(bridge, registry, calls);
+const media = new MediaTransportServer(calls, 'wss://test.example.ts.net/remote');
+const remote = new RemoteServer(bridge, registry, 'wss://test.example.ts.net/remote', 0, 15000, 20000, { registry, dispatcher, projectId: 'codex-voice-example' }, { manager: calls, media });
 let started = false, closing = false;
 async function close() {
   if (closing) return; closing = true; clearInterval(poll);
-  await remote.close(); await dispatcher.close(); await bridge.close();
+  coordinator.close(); await remote.close(); calls.close(); await dispatcher.close(); await bridge.close();
   rmSync(stateDirectory, { recursive: true });
   if (existsSync(metadata)) rmSync(metadata); if (existsSync(control)) rmSync(control);
   if (existsSync(pushFile)) rmSync(pushFile);

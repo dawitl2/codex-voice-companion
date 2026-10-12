@@ -9,8 +9,12 @@ import { sanitize } from '../utils/safe.js';
 import { CLIENT_LIMIT, encode, parseClient, ProtocolError, type Snapshot } from './Protocol.js';
 import type { DeviceRegistry } from './DeviceRegistry.js';
 import type { NotificationDispatcher } from '../notifications/NotificationDispatcher.js';
+import { CallError, type CallSessionManager } from '../calls/CallSessionManager.js';
+import type { MediaTransportServer } from '../calls/MediaTransportServer.js';
+import { PCM } from '../calls/AudioProtocol.js';
 
 export interface NotificationAccess { registry: DeviceRegistry; dispatcher: NotificationDispatcher; projectId: string | undefined }
+export interface CallAccess { manager: CallSessionManager; media: MediaTransportServer }
 
 export interface RemoteAccess {
   authenticate(deviceId: string, token: string, identity: string): boolean;
@@ -33,21 +37,26 @@ export class RemoteServer {
   private readonly pendingTypes = new Set<string>();
   readonly endpoint: URL;
   constructor(private readonly bridge: Bridge, private readonly access: RemoteAccess,
-    endpoint: string, private readonly port = 8787, private readonly handshakeMs = 15000, private readonly heartbeatMs = 20000, private readonly notifications?: NotificationAccess) {
+    endpoint: string, private readonly port = 8787, private readonly handshakeMs = 15000, private readonly heartbeatMs = 20000, private readonly notifications?: NotificationAccess, private readonly calls?: CallAccess) {
     this.endpoint = privateEndpoint(endpoint);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid remote port');
     this.server.headersTimeout = 10000; this.server.requestTimeout = 15000;
     this.server.on('upgrade', (req, socket, head) => {
-      const identity = this.proxyIdentity(req);
+      const identity = this.proxyIdentity(req, req.url === '/media' ? '/media' : '/remote');
+      if (req.url === '/media') {
+        if (!this.closing && identity && this.calls) this.calls.media.upgrade(req, socket, head, identity);
+        else socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+        return;
+      }
       if (this.closing || !identity || this.sessions.size >= 8) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
       this.sockets.handleUpgrade(req, socket, head, ws => this.accept(ws, identity));
     });
   }
-  private proxyIdentity(req: IncomingMessage): string | null {
+  private proxyIdentity(req: IncomingMessage, path: '/remote' | '/media'): string | null {
     // Only local Serve is trusted to terminate TLS and replace identity headers.
     // Same-user malicious local processes are outside this trust boundary.
     const login = req.headers['tailscale-user-login'];
-    if (req.socket.remoteAddress !== '127.0.0.1' || req.url !== '/remote' || req.headers.origin ||
+    if (req.socket.remoteAddress !== '127.0.0.1' || req.url !== path || req.headers.origin ||
       req.headers['tailscale-funnel-request'] || req.headers['x-forwarded-proto'] !== 'https' ||
       req.headers['x-forwarded-host'] !== this.endpoint.host || typeof login !== 'string' || !login || login.length > 256) return null;
     return login;
@@ -104,6 +113,7 @@ export class RemoteServer {
     }, 0);
   }
   revoke(deviceId: string): void {
+    this.calls?.manager.revoke(deviceId);
     for (const s of this.sessions) if (s.deviceId === deviceId) { this.send(s, 'auth.failed', { code: 'revoked' }); s.socket.close(4003, 'Pair again'); }
   }
   private accept(socket: WebSocket, identity: string): void {
@@ -139,7 +149,25 @@ export class RemoteServer {
           return;
         }
         if (!session.deviceId) throw new ProtocolError('authentication_required');
-        if (m.type.startsWith('notification.')) {
+        if (m.type.startsWith('call.')) {
+          try {
+            const calls = this.calls; if (!calls) throw new CallError('calls_disabled');
+            const p = m.payload as Record<string, unknown>; let call = null;
+            if (m.type === 'call.preferences.update') calls.manager.setPreferences(session.deviceId, p.enabled as boolean);
+            if (['call.preferences.update','call.preferences.request'].includes(m.type)) this.send(session, 'call.preferences.response', { enabled: calls.manager.preferences(session.deviceId) }, m.id);
+            else if (m.type === 'call.accept' || m.type === 'call.resume') this.send(session, 'call.media.response', { ...calls.manager.accept(session.deviceId, String(p.callId), identity, m.type === 'call.resume'), mediaUrl: calls.media.endpoint, format: PCM }, m.id);
+            else {
+              if (m.type === 'call.offer.request') call = calls.manager.byEvent(session.deviceId, String(p.eventId));
+              else if (m.type === 'call.decline') call = calls.manager.decline(session.deviceId, String(p.callId));
+              else if (m.type === 'call.end') call = calls.manager.end(session.deviceId, String(p.callId));
+              else { if (m.type === 'call.mute') calls.manager.mute(session.deviceId, String(p.callId), p.muted as boolean);
+                if (m.type === 'call.test-tone') { calls.manager.status(session.deviceId, String(p.callId)); calls.media.tone(String(p.callId)); }
+                call = calls.manager.status(session.deviceId, String(p.callId)); }
+              this.send(session, 'call.status.response', { enabled: calls.manager.preferences(session.deviceId), call }, m.id);
+            }
+          } catch (error) { this.send(session, 'call.error', { code: error instanceof CallError ? error.code : 'call_storage_unavailable' }, m.id); }
+        }
+        else if (m.type.startsWith('notification.')) {
           try {
             const n = this.notifications; if (!n) throw new ProtocolError('notifications_unavailable');
             if (m.type === 'notification.register') {
@@ -172,6 +200,7 @@ export class RemoteServer {
     if (this.heartbeat) clearInterval(this.heartbeat); if (this.pendingPublish) clearTimeout(this.pendingPublish);
     for (const s of this.sessions) { clearTimeout(s.timer); s.socket.terminate(); }
     this.sessions.clear();
+    await this.calls?.media.close();
     await new Promise<void>(resolve => this.sockets.close(() => resolve()));
     if (this.listening) await new Promise<void>(resolve => this.server.close(() => resolve()));
   }

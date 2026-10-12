@@ -5,6 +5,8 @@ import { summarize } from '../core/SummaryFormatter.js';
 import type { RemoteServer } from '../remote/RemoteServer.js';
 import type { DeviceRegistry } from '../remote/DeviceRegistry.js';
 import type { NotificationDispatcher } from '../notifications/NotificationDispatcher.js';
+import type { CallSessionManager } from '../calls/CallSessionManager.js';
+import type { MediaTransportServer } from '../calls/MediaTransportServer.js';
 
 export const HELP = `Codex Voice Bridge — local terminal commands
 status                       Connection, auth, selected thread and active turn
@@ -23,13 +25,16 @@ reconnect                    Restart only the transport; select/resume before se
 pair-device                  Issue one two-minute invitation (--remote required)
 devices                      List paired devices (no credentials)
 notification-status          Non-sensitive push attempts and device observations
+call-status                  Call states and PCM metrics; no audio content
+audio-test <call-id>          One brief quiet PC-generated tone on an active call
+end-call <call-id>            End the selected device's audio session
 revoke-device <device-id>     Revoke and disconnect a paired device
 help                         Show this help
 exit                         Cancel pending approvals and shut down
 Mock fixtures: send [mock:fail], [mock:approval], [mock:wait], [mock:crash], [mock:duplicate]
 This manages companion conversations; it does not attach to live VS Code sessions.`;
 
-export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices?: DeviceRegistry, notifications?: NotificationDispatcher): Promise<void> {
+export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices?: DeviceRegistry, notifications?: NotificationDispatcher, calls?: CallSessionManager, media?: MediaTransportServer): Promise<void> {
   console.log(`Codex Voice Bridge 0.1.0 | ${bridge.mode.toUpperCase()} | Node ${process.versions.node}`);
   console.log(HELP);
   let watching = true;
@@ -83,6 +88,12 @@ export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices
         console.log(`Push provider: ${notifications.diagnostic}; configured=${notifications.configured}`);
         for (const device of devices.list()) console.log(JSON.stringify({ deviceId: device.id, ...devices.pushState(device.id), deliveries: notifications.store.diagnostics(device.id) }));
         break;
+      case 'call-status': if (!calls || !media) throw new Error('Start with --remote --calls'); console.log(JSON.stringify({ calls: calls.diagnostics(), media: media.diagnostics() })); break;
+      case 'audio-test': if (!media) throw new Error('Calls are disabled'); media.tone(rest); console.log('Quiet 600 ms PC tone requested. No AI speech.'); break;
+      case 'end-call': {
+        if (!calls || !devices) throw new Error('Calls are disabled');
+        const device = devices.list()[0]; if (!device) throw new Error('No paired device'); calls.end(device.id, rest); console.log('Call ended'); break;
+      }
       case 'revoke-device': if (!remote || !devices) throw new Error('Remote monitoring is not enabled'); devices.revoke(rest); remote.revoke(rest); console.log('Device revoked'); break;
       case 'exit': shutdown(); break;
       default: throw new Error('Unknown command; type help');
