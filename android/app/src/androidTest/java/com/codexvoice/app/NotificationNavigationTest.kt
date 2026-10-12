@@ -45,7 +45,7 @@ class NotificationNavigationTest {
             compose.waitUntil(10000) { compose.onAllNodes(offline).fetchSemanticsNodes().isNotEmpty() }
             compose.onNode(offline).assertExists()
             compose.onNodeWithText("Dismiss alert").performScrollTo().performClick()
-            compose.waitUntil(10000) { compose.onAllNodesWithText("Your work, within reach.").fetchSemanticsNodes().isNotEmpty() }
+            compose.waitUntil(10000) { compose.onAllNodesWithText("Codex Voice").fetchSemanticsNodes().isNotEmpty() }
             assertEquals(credential.deviceId, credentials.load()?.deviceId)
             assertTrue(store.state.value.receipts.any { it.stage == "opened" }); assertTrue(store.state.value.receipts.any { it.stage == "dismissed" })
         } finally {

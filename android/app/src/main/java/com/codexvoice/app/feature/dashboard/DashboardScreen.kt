@@ -17,7 +17,7 @@ import com.codexvoice.app.feature.settings.label
 
 @Composable
 fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallReason) -> Unit, onHistory: () -> Unit, onSettings: () -> Unit = {}) {
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(Icons.Default.Code, "Codex Voice", Modifier.size(36.dp))
@@ -25,8 +25,8 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
             }
         }
         item {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (state.demoMode) DemoBadge() else Text(if (state.remote?.snapshot?.mode == "mock") "PC BRIDGE MOCK · SIMULATED" else "PRIVATE PC MONITOR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Icon(Icons.Default.Computer, null, tint = MaterialTheme.colorScheme.primary)
@@ -41,11 +41,11 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
                 }
             }
         }
-        item { Eyebrow(if (state.demoMode) "Current task · sample" else "Selected conversation · latest turn") }
-        item { state.current?.let { TaskCard(it, reduceMotion) } ?: EmptyState("No active task", "Your next task will appear here.") }
+        item { Eyebrow(if (state.demoMode) "Current task · sample" else "Current task") }
+        item { state.current?.let { TaskCard(it, reduceMotion) } ?: EmptyState("No active task", "Ready when you are.") }
         if (state.demoMode) item {
-            Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Try a demo call", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     Text("Simulated · Microphone off", color = MaterialTheme.colorScheme.onPrimaryContainer)
                     Button(onClick = { onDemo(CallReason.COMPLETION) }, modifier = Modifier.fillMaxWidth()) {
@@ -59,7 +59,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
         if (!state.demoMode && state.remote?.snapshot?.threads?.isNotEmpty() == true) {
             item { Eyebrow("Recent managed conversations") }
             items(state.remote.snapshot.threads, key = { "thread-" + it.id }) { thread ->
-                Card(shape = RoundedCornerShape(22.dp)) {
+                Card(shape = RoundedCornerShape(14.dp)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(thread.label, style = MaterialTheme.typography.titleMedium)
                         Text(thread.project + if (thread.id == state.remote.snapshot.selectedThreadId) " · Selected on PC" else "", style = MaterialTheme.typography.bodyMedium)
@@ -74,7 +74,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
                 TextButton(onHistory) { Text("View all") }
             }
         }
-        if (state.history.isEmpty()) item { EmptyState("A quiet workspace", if (state.demoMode) "No sample activity. Reset the demo from History." else "No recent synchronized task events.") }
+        if (state.history.isEmpty()) item { EmptyState("A quiet workspace", if (state.demoMode) "No sample activity. Reset the demo from History." else "Your completed tasks appear here.") }
         items(state.history.take(2), key = { it.id }) { TaskCard(it, reduceMotion) }
     }
 }

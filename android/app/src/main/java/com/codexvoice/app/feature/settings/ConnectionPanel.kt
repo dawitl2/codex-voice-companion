@@ -38,7 +38,7 @@ fun ConnectionPanel(state: ClientState?, demo: Boolean, onDemo: (Boolean) -> Uni
     }
     if (demo) {
         Text("Offline demo", style = MaterialTheme.typography.titleMedium)
-        Text("Sample tasks and calls are simulated. Switch to PC monitor to connect.")
+        Text("Simulated tasks · Microphone off")
     } else if (state != null) {
         val busy = state.status in setOf(RemoteStatus.CONNECTING, RemoteStatus.PAIRING, RemoteStatus.AUTHENTICATING, RemoteStatus.RECONNECTING)
         Text(state.status.label(), style = MaterialTheme.typography.titleMedium)
@@ -48,18 +48,18 @@ fun ConnectionPanel(state: ClientState?, demo: Boolean, onDemo: (Boolean) -> Uni
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         if (state.problem.isNotEmpty()) Text(state.problem, color = MaterialTheme.colorScheme.error)
         if (!state.paired) {
-            OutlinedTextField(address, { address = it }, label = { Text("Private server address") },
-                placeholder = { Text("wss://your-pc.your-tailnet.ts.net/remote") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(code, { code = it.take(24) }, label = { Text("One-time pairing code") },
-                visualTransformation = PasswordVisualTransformation(), singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth())
+            TextField(address, { address = it }, label = { Text("Private server address") },
+                placeholder = { Text("wss://your-pc.your-tailnet.ts.net/remote") }, singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = TextFieldDefaults.colors(focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent))
+            TextField(code, { code = it.take(24) }, label = { Text("One-time pairing code") },
+                visualTransformation = PasswordVisualTransformation(), singleLine = true, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = TextFieldDefaults.colors(focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh, focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent, unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent))
             Button({ val invitation = code; code = ""; onPair(address, invitation) }, enabled = !busy && address.isNotBlank() && code.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Pair this PC") }
-            Text("Connect Tailscale on both devices. On the PC bridge, use pair-device to obtain an invitation. Codes expire after two minutes.", style = MaterialTheme.typography.bodySmall)
+            Text("Tailscale required · Get a fresh code from the PC", style = MaterialTheme.typography.bodySmall)
         } else {
             Button(onConnect, enabled = !busy && state.status != RemoteStatus.CONNECTED, modifier = Modifier.fillMaxWidth()) { Text("Connect") }
         }
         if (busy || state.paired || state.status == RemoteStatus.BRIDGE_UNAVAILABLE) OutlinedButton(onDisconnect, modifier = Modifier.fillMaxWidth()) { Text("Disconnect") }
         if (state.paired || state.status == RemoteStatus.STORAGE_ERROR) TextButton({ confirmForget = true }) { Text("Forget paired PC") }
-        Text("Monitoring runs while the app is active. Disconnected history may be stale.", style = MaterialTheme.typography.bodySmall)
+        Text("Monitoring pauses in the background", style = MaterialTheme.typography.bodySmall)
     }
     if (confirmForget) AlertDialog(onDismissRequest = { confirmForget = false }, title = { Text("Forget paired PC?") },
         text = { Text("This removes the phone’s saved credential. Revoke this device on the PC before pairing it again.") },

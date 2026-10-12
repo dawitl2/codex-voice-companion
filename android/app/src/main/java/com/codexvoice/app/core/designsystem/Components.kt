@@ -23,7 +23,7 @@ fun durationLabel(seconds: Long): String = "%d:%02d".format(seconds / 60, second
 fun ScreenHeading(title: String, subtitle: String) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, style = MaterialTheme.typography.headlineLarge)
-        Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (subtitle.isNotEmpty()) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 @Composable
@@ -49,18 +49,19 @@ fun TaskCard(task: Task, reduceMotion: Boolean = false) {
         TaskStatus.AWAITING_APPROVAL -> Icons.Default.Lock
         TaskStatus.UNKNOWN -> Icons.AutoMirrored.Filled.HelpOutline
     }
-    Card(onClick = { expanded = !expanded }, shape = RoundedCornerShape(22.dp),
+    Card(onClick = { expanded = !expanded }, shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-        Column(Modifier.fillMaxWidth().animateContentSize(tween(if (reduceMotion) 0 else 180)).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().animateContentSize(tween(if (reduceMotion) 0 else 180)).padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(icon, null, Modifier.size(18.dp), tint = color)
                 Text(task.status.label(), style = MaterialTheme.typography.labelLarge, color = color)
             }
             Text(task.title, style = MaterialTheme.typography.titleMedium)
             Text(task.project, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(formattedTime(task.updatedAt) + (task.durationSeconds?.let { " · ${durationLabel(it)}" } ?: ""),
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (expanded) Text(task.summary, style = MaterialTheme.typography.bodyMedium)
+            if (expanded) {
+                Text(formattedTime(task.updatedAt) + (task.durationSeconds?.let { " · ${durationLabel(it)}" } ?: ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(task.summary, style = MaterialTheme.typography.bodyMedium)
+            }
             val details = if (task.simulated) "sample details" else "details"
             Text(if (expanded) "Hide $details" else "View $details", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
         }
@@ -68,8 +69,7 @@ fun TaskCard(task: Task, reduceMotion: Boolean = false) {
 }
 @Composable
 fun EmptyState(title: String, detail: String) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(Icons.Default.Inbox, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium)
         Text(detail, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }

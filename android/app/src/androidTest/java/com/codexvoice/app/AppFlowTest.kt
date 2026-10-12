@@ -40,7 +40,7 @@ class AppFlowTest {
         compose.onNodeWithText("Settings").performClick()
         compose.onNodeWithText("Dark").assertIsDisplayed()
         compose.onNodeWithText("Home").performClick()
-        compose.onNodeWithText("Your work, within reach.").assertIsDisplayed()
+        compose.onNodeWithText("PC bridge is not connected").assertIsDisplayed()
     }
     @Test fun answerMuteAndHangUp() {
         preview()

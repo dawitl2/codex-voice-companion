@@ -15,8 +15,8 @@ fun HistoryScreen(tasks: List<Task>, reduceMotion: Boolean, onClear: () -> Unit,
     demoMode: Boolean = true, connection: ConnectionStatus = ConnectionStatus.DEMO, bridgeMock: Boolean = false) {
     var failuresOnly by rememberSaveable { mutableStateOf(false) }
     val visible = sortedHistory(tasks, if (failuresOnly) TaskStatus.FAILED else null)
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { ScreenHeading("Task history", "A clear record of your work.") }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item { ScreenHeading("Task history", "") }
         item {
             if (demoMode) DemoBadge() else Text(if (bridgeMock) "PC bridge mock · simulated events" else "PC bridge history",
                 color = MaterialTheme.colorScheme.primary)

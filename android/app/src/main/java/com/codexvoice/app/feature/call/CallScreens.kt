@@ -45,7 +45,7 @@ fun IncomingCallScreen(session: CallSession, reduceMotion: Boolean, onAnswer: ()
                     }
                 }
                 item {
-                    Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
                         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(session.task.title, style = MaterialTheme.typography.titleMedium)
                             Text(session.task.project, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -104,15 +104,15 @@ fun ActiveCallScreen(session: CallSession, onMute: () -> Unit, onHangUp: () -> U
             }
         }
     }) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { DemoBadge() }
             item { VoiceIdentity(80) }
             item { Text("Codex Voice", style = MaterialTheme.typography.headlineMedium) }
             item { Text("Demo session · ${durationLabel(elapsed)}", color = MaterialTheme.colorScheme.primary) }
             item { Text(session.task.title, style = MaterialTheme.typography.titleMedium) }
             item {
-                Surface(shape = RoundedCornerShape(22.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
                     Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Eyebrow("Sample transcript")
                         Text(session.task.summary, style = MaterialTheme.typography.bodyLarge)

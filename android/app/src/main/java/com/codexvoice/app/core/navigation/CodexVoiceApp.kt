@@ -9,6 +9,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -100,7 +106,8 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
             BackHandler { if (liveCall.phase == LivePhase.OFFERED) viewModel.declineLiveCall() else if (liveCall.serviceRunning || liveCall.phase == LivePhase.CONNECTING) viewModel.endLiveCall() else viewModel.dismissLiveCall() }
             LiveCallScreen(liveCall, dashboard.remote, answerAudio, viewModel::declineLiveCall, viewModel::endLiveCall,
                 viewModel::muteLiveCall, viewModel::speakerLiveCall, viewModel::testLiveAudio, viewModel::dismissLiveCall, viewModel::liveCallResults,
-                { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))) })
+                { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))) },
+                ringEnabled = prefs.notificationsEnabled && prefs.notificationSound)
         } else if (notification.alert != null) {
             BackHandler { viewModel.dismissNotification() }
             TaskAlertScreen(notification, dashboard.remote, viewModel::viewNotificationResults, viewModel::dismissNotification, viewModel::connectPc)
@@ -114,10 +121,20 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 ActiveCallScreen(call.session!!, viewModel::toggleMute, viewModel::hangUp)
             }
             else -> Scaffold(bottomBar = {
-                NavigationBar {
-                    destinations.forEach { d ->
-                        NavigationBarItem((backStack?.destination?.route ?: "home") == d.route, { navigate(d.route) },
-                            icon = { Icon(d.icon, null) }, label = { Text(d.title) })
+                Surface(color = MaterialTheme.colorScheme.surface) {
+                    Column {
+                        HorizontalDivider(thickness = .5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                        Row(Modifier.fillMaxWidth().navigationBarsPadding()) {
+                            destinations.forEach { d ->
+                                val current = (backStack?.destination?.route ?: "home") == d.route
+                                val tint = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                Column(Modifier.weight(1f).semantics { selected = current }.clickable(role = Role.Tab) { navigate(d.route) }.padding(vertical = 12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Icon(d.icon, null, Modifier.size(24.dp), tint = tint)
+                                    Text(d.title, style = MaterialTheme.typography.labelSmall, color = tint)
+                                }
+                            }
+                        }
                     }
                 }
             }) { padding ->

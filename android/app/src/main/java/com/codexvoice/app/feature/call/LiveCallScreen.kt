@@ -18,13 +18,30 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.codexvoice.app.core.calls.*
 import com.codexvoice.app.core.remote.ClientState
 import kotlinx.coroutines.delay
 
 @Composable fun LiveCallScreen(state: LiveCallState, remote: ClientState?, onAnswer: () -> Unit, onDecline: () -> Unit,
     onEnd: () -> Unit, onMute: () -> Unit, onSpeaker: () -> Unit, onTone: () -> Unit,
-    onReturn: () -> Unit, onResults: () -> Unit, onPermissions: () -> Unit) {
+    onReturn: () -> Unit, onResults: () -> Unit, onPermissions: () -> Unit, ringEnabled: Boolean = false) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val ringer = remember(state.offer?.callId) { IncomingCallRinger(context, state.offer?.expiresAt ?: 0) }
+    DisposableEffect(ringer, lifecycle, state.phase, ringEnabled) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && state.phase == LivePhase.OFFERED) ringer.start(ringEnabled)
+            if (event == Lifecycle.Event.ON_PAUSE) ringer.pause()
+        }
+        lifecycle.addObserver(observer)
+        if (state.phase == LivePhase.OFFERED && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) ringer.start(ringEnabled)
+        else ringer.pause()
+        onDispose { lifecycle.removeObserver(observer); ringer.pause() }
+    }
     var clock by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     LaunchedEffect(state.offer?.callId) { while (true) { delay(1000); clock = SystemClock.elapsedRealtime() } }
     val duration = if (state.activeAt == 0L) 0 else ((if (state.endedAt > 0) state.endedAt else clock) - state.activeAt).coerceAtLeast(0) / 1000
@@ -42,7 +59,7 @@ import kotlinx.coroutines.delay
             Text(when (state.phase) {
                 LivePhase.OFFERED -> "Incoming audio session"
                 LivePhase.CONNECTING -> "Connecting…"
-                LivePhase.ACTIVE -> "%02d:%02d".format(duration / 60, duration % 60)
+                LivePhase.ACTIVE -> "Connected · %02d:%02d".format(duration / 60, duration % 60)
                 LivePhase.RECONNECTING -> "Reconnecting…"
                 LivePhase.EXPIRED -> "Invitation expired"
                 LivePhase.DECLINED -> "Declined"
@@ -56,6 +73,8 @@ import kotlinx.coroutines.delay
                 Text(if (state.capturing) "Mic on · ${state.route}" else "Mic off · ${state.route}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
                 LinearProgressIndicator(progress = { (state.inputLevel * 4).coerceIn(0f, 1f) }, modifier = Modifier.width(64.dp).height(2.dp).semantics { contentDescription = "Measured microphone level" })
+                Spacer(Modifier.height(4.dp))
+                LinearProgressIndicator(progress = { (state.outputLevel * 4).coerceIn(0f, 1f) }, modifier = Modifier.width(64.dp).height(2.dp).semantics { contentDescription = "Measured PC audio level" })
             }
             Spacer(Modifier.height(12.dp))
             Text(if (state.offer?.mode == "mock") "Simulated task · Audio only" else "Private audio", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -68,11 +87,11 @@ import kotlinx.coroutines.delay
             when (state.phase) {
                 LivePhase.OFFERED -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(48.dp)) {
-                        CallControl("Decline", Icons.Default.CallEnd, onDecline, Color(0xFFFF453A), Color.White)
-                        CallControl("Answer", Icons.Default.Call, onAnswer, Color(0xFF30B963), Color.White, description = "Answer real audio call")
+                        CallControl("Decline", Icons.Default.CallEnd, { ringer.close(); onDecline() }, Color(0xFFFF453A), Color.White)
+                        CallControl("Answer", Icons.Default.Call, { ringer.close(); onAnswer() }, Color(0xFF30B963), Color.White, description = "Answer real audio call")
                     }
                     Spacer(Modifier.height(24.dp))
-                    TextButton(onResults) { Text("View task results") }
+                    TextButton({ ringer.close(); onResults() }) { Text("View task results") }
                     if (state.permissionDenied) TextButton(onPermissions) { Text("Microphone app settings") }
                 }
                 LivePhase.CONNECTING, LivePhase.RECONNECTING -> {
