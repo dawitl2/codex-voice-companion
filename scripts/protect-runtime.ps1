@@ -12,13 +12,13 @@ foreach ($item in $runtimeItems) {
     if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or (-not $item.FullName.StartsWith($runtimeRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and $item.FullName -ne $runtimeRoot)) { throw 'Runtime path/reparse check failed; no ACL changes applied.' }
 }
 $changes = @($runtimeItems | Where-Object {
-    $acl = Get-Acl -LiteralPath $_.FullName
+    $acl = if ($_.PSIsContainer) { [IO.Directory]::GetAccessControl($_.FullName) } else { [IO.File]::GetAccessControl($_.FullName) }
     -not $acl.AreAccessRulesProtected -or @($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -ne $sid.Value }).Count -gt 0
 })
 if ($changes.Count -eq 0) { Write-Output 'Runtime files already restricted to the current Windows user.'; return }
 $backupDirectory = Join-Path $env:USERPROFILE '.codex-voice\security'
 & (Join-Path $PSScriptRoot 'protect-firebase-credentials.ps1') -Directory $backupDirectory | Out-Null
-$records = @($changes | ForEach-Object { @{relativePath=$_.FullName.Substring($runtimeRoot.Length);sddl=(Get-Acl -LiteralPath $_.FullName).Sddl} })
+$records = @($changes | ForEach-Object { $savedAcl = if ($_.PSIsContainer) { [IO.Directory]::GetAccessControl($_.FullName) } else { [IO.File]::GetAccessControl($_.FullName) }; @{relativePath=$_.FullName.Substring($runtimeRoot.Length);sddl=$savedAcl.Sddl} })
 $backupPath = Join-Path $backupDirectory ('runtime-acl-before-' + [guid]::NewGuid().ToString() + '.json')
 [IO.File]::WriteAllText($backupPath, (ConvertTo-Json -InputObject $records -Depth 4))
 foreach ($item in $changes) {

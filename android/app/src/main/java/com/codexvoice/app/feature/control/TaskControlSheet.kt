@@ -66,6 +66,7 @@ import kotlinx.coroutines.delay
                 Text(a.reason,style=MaterialTheme.typography.bodySmall)
                 Text(a.risk,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Request · ${a.requestId.takeLast(16)} · ${((a.expiresAt-now)/1000).coerceAtLeast(0)}s left",style=MaterialTheme.typography.bodySmall)
+                if (a.expiresAt <= now) Text("Approval deadline passed. Review the current task on PC.",style=MaterialTheme.typography.bodySmall)
                 Row{TextButton({onDeny(a)},enabled=state.connected&&a.expiresAt>now&&"decline" in a.allowed){Text("Review denial")}
                     TextButton({onApprove(a)},enabled=state.connected&&state.trusted&&a.expiresAt>now&&"accept" in a.allowed&&state.challenge==null){Text("Approve once")}}
             }

@@ -69,6 +69,12 @@ class SpeechSessionController(private val context:Context, private val client:Re
     private fun sync() {
         val live=CallRuntime.state.value
         if(live.phase!=LivePhase.ACTIVE || !live.serviceRunning) {
+            if (live.phase == LivePhase.RECONNECTING) {
+                // PC speech/conversation sessions are recreated with the fresh media grant.
+                // Re-enable listening and fetch the summary, without replaying old speech.
+                configured=false; summaryRequested=false; autoPlayed=true; playback="none"
+                pending.clear(); startGate.cancel(); outputSequence=0
+            }
             if(live.phase in setOf(LivePhase.IDLE,LivePhase.ENDED,LivePhase.DECLINED,LivePhase.EXPIRED,LivePhase.FAILED)) {
                 callId=null; configured=false; summaryRequested=false; autoPlayed=false; playback="none"; pending.clear(); startGate.cancel()
                 if(SpeechRuntime.state.value.callId.isNotEmpty()) SpeechRuntime.clear()

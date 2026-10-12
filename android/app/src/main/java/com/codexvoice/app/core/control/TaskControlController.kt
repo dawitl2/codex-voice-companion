@@ -47,7 +47,7 @@ class TaskControlController(private val client:RemoteClient,private val scope:Co
     fun cancel(id:String){send("control.cancel",mapOf("operationId" to id))}
     fun deny(a:ApprovalReview){send("control.deny.propose",mapOf("turnId" to a.turnId,"approvalId" to a.id))}
     fun register(){try{send("control.reviewer.register",mapOf("publicKey" to SecureApproval.publicKey()))}catch(_:Exception){mutable.value=state.value.copy(error="Secure authentication unavailable; review on PC")}}
-    fun approve(a:ApprovalReview){if(!ready||!state.value.trusted||a.status!="pending"||"accept" !in a.allowed)return;approvalId=a.id;transactionId=UUID.randomUUID().toString();send("control.approval.challenge",mapOf("approvalId" to a.id,"transactionId" to transactionId))}
+    fun approve(a:ApprovalReview){if(!ready||!state.value.trusted||a.status!="pending"||a.expiresAt<=System.currentTimeMillis()||"accept" !in a.allowed)return;approvalId=a.id;transactionId=UUID.randomUUID().toString();send("control.approval.challenge",mapOf("approvalId" to a.id,"transactionId" to transactionId))}
     fun authorized(challenge:ApprovalChallenge,signature:String?){
         if(state.value.challenge?.id!=challenge.id)return
         mutable.value=state.value.copy(challenge=null)

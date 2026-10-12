@@ -1,4 +1,4 @@
-param([switch]$MobileData, [switch]$Ui, [switch]$RealSnapshot, [switch]$Notifications, [switch]$ProcessAbsent, [switch]$Calls, [switch]$QuickAudio, [switch]$Speech, [switch]$Conversation,[switch]$Controls,[switch]$SkipSecureApproval,[switch]$HumanVoice,[ValidateSet('all','remaining')][string]$ControlsPhase='all')
+param([switch]$MobileData, [switch]$Ui, [switch]$RealSnapshot, [switch]$Notifications, [switch]$ProcessAbsent, [switch]$Calls, [switch]$QuickAudio, [switch]$Speech, [switch]$Conversation,[switch]$Controls,[switch]$Reliability,[switch]$SkipSecureApproval,[switch]$HumanVoice,[ValidateSet('all','remaining')][string]$ControlsPhase='all',[ValidateSet('all','remaining','network')][string]$ReliabilityPhase='all')
 $ErrorActionPreference = 'Stop'
 $deviceRoot = Split-Path $PSScriptRoot -Parent
 $tsExe = 'C:\Program Files\Tailscale\tailscale.exe'
@@ -17,10 +17,11 @@ $previousSparkConfirmation = $env:CODEX_VOICE_FIREBASE_SPARK_CONFIRMED
 $fixtureProcess = $null; $instrumentProcess = $null; $routeChanged = $false
 Push-Location -LiteralPath $deviceRoot
 try {
-  if($Controls){if($RealSnapshot -or $Notifications -or $MobileData -or $Conversation -or $QuickAudio){throw '-Controls uses one simulated foreground fixture'};$Speech=$true;$Calls=$true}
+  if($Reliability){if($RealSnapshot -or $Notifications -or $Conversation -or $QuickAudio){throw '-Reliability uses one simulated task/native speech fixture'};$Controls=$true;$Speech=$true;$Calls=$true;$MobileData=$true}
+  if($Controls){if($RealSnapshot -or $Notifications -or ($MobileData -and -not $Reliability) -or $Conversation -or $QuickAudio){throw '-Controls uses one simulated foreground fixture'};$Speech=$true;$Calls=$true}
   if($Conversation){if(-not $RealSnapshot -or -not $Notifications){throw '-Conversation requires -RealSnapshot -Notifications'};$Speech=$true}
   if ($Speech) {
-    if ((-not $RealSnapshot -and -not $Controls) -or ($Notifications -and -not $Conversation) -or $MobileData -or $QuickAudio) { throw '-Speech requires -RealSnapshot or -Controls and a focused foreground session' }
+    if ((-not $RealSnapshot -and -not $Controls) -or ($Notifications -and -not $Conversation) -or ($MobileData -and -not $Reliability) -or $QuickAudio) { throw '-Speech requires -RealSnapshot or -Controls and a focused foreground session' }
     $Calls = $true
   }
   if ($Notifications -and ($Ui -or ($RealSnapshot -and -not $Conversation))) { throw 'Notification fixture is separate from UI/real-history fixtures' }
@@ -103,10 +104,10 @@ try {
   & $tsExe serve --bg --https=443 http://127.0.0.1:8788
   if ($LASTEXITCODE -ne 0) { throw 'Scoped private fixture route failed' }
   $routeChanged = $true
-  $outputPath = Join-Path $deviceDirectory $(if($Controls){'controls-session.txt'}elseif($Conversation){'conversation-session.txt'}elseif ($Speech) { 'speech-session.txt' } elseif ($Calls) { 'audio-session.txt' } elseif ($Notifications) { 'firebase-delivery.txt' } elseif ($Ui) { 'monitor-ui.txt' } elseif ($RealSnapshot) { 'real-snapshot.txt' } else { 'private-route.txt' })
+  $outputPath = Join-Path $deviceDirectory $(if($Reliability){'reliability-session.txt'}elseif($Controls){'controls-session.txt'}elseif($Conversation){'conversation-session.txt'}elseif ($Speech) { 'speech-session.txt' } elseif ($Calls) { 'audio-session.txt' } elseif ($Notifications) { 'firebase-delivery.txt' } elseif ($Ui) { 'monitor-ui.txt' } elseif ($RealSnapshot) { 'real-snapshot.txt' } else { 'private-route.txt' })
   $errorPath = Join-Path $deviceDirectory 'instrumentation-errors.txt'
   $mobileFlag = if ($MobileData) { 'true' } else { 'false' }
-  $testClass = if($Controls){'com.codexvoice.app.TaskControlTest'}elseif($Conversation){'com.codexvoice.app.ConversationCallTest#realSpeechConfirmationCodexReplyAndCleanup'}elseif ($Speech) { 'com.codexvoice.app.SpeechCallTest' } elseif ($Calls) { 'com.codexvoice.app.AudioSessionTest' } elseif ($ProcessAbsent) { 'com.codexvoice.app.FirebaseProcessTest' } elseif ($Notifications) { 'com.codexvoice.app.FirebaseDeliveryTest' } elseif ($RealSnapshot) { 'com.codexvoice.app.RealSnapshotTest' } elseif ($Ui) { 'com.codexvoice.app.PrivateMonitorUiTest' } else { 'com.codexvoice.app.PrivateRouteTest' }
+  $testClass = if($Reliability){'com.codexvoice.app.ReliabilityTest'}elseif($Controls){'com.codexvoice.app.TaskControlTest'}elseif($Conversation){'com.codexvoice.app.ConversationCallTest#realSpeechConfirmationCodexReplyAndCleanup'}elseif ($Speech) { 'com.codexvoice.app.SpeechCallTest' } elseif ($Calls) { 'com.codexvoice.app.AudioSessionTest' } elseif ($ProcessAbsent) { 'com.codexvoice.app.FirebaseProcessTest' } elseif ($Notifications) { 'com.codexvoice.app.FirebaseDeliveryTest' } elseif ($RealSnapshot) { 'com.codexvoice.app.RealSnapshotTest' } elseif ($Ui) { 'com.codexvoice.app.PrivateMonitorUiTest' } else { 'com.codexvoice.app.PrivateRouteTest' }
   if ($Ui -or $Notifications -or $Speech) {
     # Wake for UI testing. Android enforces any required secure unlock; no PIN is supplied.
     & $adbExe -s $serial shell input keyevent KEYCODE_WAKEUP
@@ -117,6 +118,7 @@ try {
   if ($QuickAudio) { $instrumentArguments += @('-e','quickAudio','true') }
   if($SkipSecureApproval){$instrumentArguments+=@('-e','skipSecureApproval','true')}
   if($Controls){$instrumentArguments+=@('-e','controlPhase',$ControlsPhase)}
+  if($Reliability){$instrumentArguments+=@('-e','reliabilityPhase',$ReliabilityPhase)}
   if($HumanVoice){$instrumentArguments+=@('-e','humanVoice','true')}
   if ($ProcessAbsent) { $instrumentArguments += @('-e','processPhase','setup') }
   $instrumentArguments += 'com.codexvoice.app.test/androidx.test.runner.AndroidJUnitRunner'
@@ -131,6 +133,24 @@ try {
     $deviceControl = & $adbExe -s $serial shell run-as com.codexvoice.app cat no_backup/device-verification/control.txt 2>$null
     if (-not $deviceControl) { Start-Sleep -Milliseconds 300; continue }
     $command = ([string]$deviceControl).Trim()
+    if ($Reliability -and $command -in @('network-mobile','network-wifi','network-restore')) {
+      & $adbExe -s $serial shell run-as com.codexvoice.app rm no_backup/device-verification/control.txt
+      if ($command -eq 'network-mobile') { & $adbExe -s $serial shell svc data enable; & $adbExe -s $serial shell svc wifi disable }
+      elseif ($command -eq 'network-wifi') { & $adbExe -s $serial shell svc wifi enable }
+      else { & $adbExe -s $serial shell svc wifi $(if ($wifiInitial -eq '1') { 'enable' } else { 'disable' }); & $adbExe -s $serial shell svc data $(if ($dataInitial -eq '1') { 'enable' } else { 'disable' }) }
+      Write-Output "Physical route check: $command"
+      Start-Sleep -Seconds 3
+      $connectivity = (& $adbExe -s $serial shell dumpsys connectivity | Out-String)
+      $defaultMatch = [regex]::Match($connectivity, 'Active default network:\s*(\d+)')
+      $transport = 'unconfirmed'
+      if ($defaultMatch.Success) {
+        $networkId = $defaultMatch.Groups[1].Value
+        $block = ($connectivity -split 'NetworkAgentInfo') | Where-Object { $_ -match "network\{$networkId\}" } | Select-Object -First 1
+        if ($block -match 'Transports:\s*CELLULAR') { $transport = 'CELLULAR' } elseif ($block -match 'Transports:\s*WIFI') { $transport = 'WIFI' }
+      }
+      $networkReceipt = Join-Path $deviceDirectory 'network-transitions.jsonl'
+      [IO.File]::AppendAllText($networkReceipt, ((@{runId=$audioRunId;command=$command;transport=$transport;wifi=(& $adbExe -s $serial shell settings get global wifi_on).Trim();data=(& $adbExe -s $serial shell settings get global mobile_data).Trim()} | ConvertTo-Json -Compress) + [Environment]::NewLine))
+    }
     if ($command -in @('offer','complete','failure','waiting','interrupt','approval','approval-reviewed','finish-waiting','decline','restart','revoke','offline','online')) {
       & $adbExe -s $serial shell run-as com.codexvoice.app rm no_backup/device-verification/control.txt
       [IO.File]::WriteAllText((Join-Path $deviceDirectory 'control.txt'), $command)
@@ -141,7 +161,11 @@ try {
   $instrumentOutput = Get-Content -LiteralPath $outputPath -Raw
   Write-Output $instrumentOutput
   if ($instrumentProcess.ExitCode -ne 0 -or $instrumentOutput -notmatch 'OK \(1 test\)' -or $instrumentOutput -match 'FAILURES|INSTRUMENTATION_FAILED') { throw 'Physical private-route test failed' }
-  if($Controls){
+  if($Reliability){
+    $reliabilityProof=& $adbExe -s $serial shell run-as com.codexvoice.app cat no_backup/device-verification/reliability-result.json 2>$null
+    if(-not $reliabilityProof -or ($reliabilityProof|ConvertFrom-Json).runId -ne $audioRunId){throw 'Reliability proof does not match this execution'}
+    $reliabilityProof|Set-Content -LiteralPath (Join-Path $deviceDirectory 'reliability-result.json')
+  }elseif($Controls){
     $controlProof=& $adbExe -s $serial shell run-as com.codexvoice.app cat no_backup/device-verification/controls-result.json 2>$null
     if(-not $controlProof -or ($controlProof|ConvertFrom-Json).runId -ne $audioRunId){throw 'Control proof does not match this execution'}
     $controlProof|Set-Content -LiteralPath (Join-Path $deviceDirectory 'controls-result.json')

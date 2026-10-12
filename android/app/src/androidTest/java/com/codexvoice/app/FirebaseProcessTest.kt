@@ -77,6 +77,19 @@ class FirebaseProcessTest {
                     assertTrue(context.getSystemService(NotificationManager::class.java).activeNotifications.any { it.tag == event.eventId })
                     assertTrue(store.state.value.receipts.any { it.eventId == event.eventId && it.stage == "posted" })
                     assertEquals("mock", event.mode)
+                    context.getSystemService(NotificationManager::class.java).activeNotifications.single { it.tag == event.eventId }.notification.contentIntent.send()
+                    until { text("View results") }
+                    compose.onNodeWithText("View results").performClick()
+                    until { compose.onAllNodesWithText("MOCK response:", substring = true).fetchSemanticsNodes().isNotEmpty() }
+                    // Successful acknowledgement removes the local pending receipt.
+                    until {
+                        store.state.value.receipts.any { it.eventId == event.eventId && it.stage == "opened" } ||
+                            JsonParser.parseString(shell("cat /data/local/tmp/codex-voice-push-status.json")).asJsonObject.getAsJsonArray("deliveries")
+                                .any { it.asJsonObject["eventId"].asString == event.eventId && it.asJsonObject.getAsJsonObject("receipts").has("opened") }
+                    }
+                    assertFalse("Notification never opens the microphone", com.codexvoice.app.core.calls.CallRuntime.state.value.serviceRunning)
+                    File(directory, "firebase-process-result.json").writeText(Gson().toJson(mapOf("taskMode" to "mock", "callback" to true,
+                        "posted" to true, "opened" to true, "authenticatedDetails" to true, "microphoneStarted" to false)))
                 } finally { cleanup() }
             }
             "cleanup" -> cleanup()
