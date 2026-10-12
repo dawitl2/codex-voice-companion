@@ -9,20 +9,20 @@ import androidx.compose.ui.unit.sp
 import com.codexvoice.app.core.model.ThemeMode
 
 private val dark = darkColorScheme(
-    primary = Color(0xFFA2E4C8), onPrimary = Color(0xFF103B2D),
-    primaryContainer = Color(0xFF214C3D), onPrimaryContainer = Color(0xFFC6F5DF),
-    background = Color(0xFF101416), onBackground = Color(0xFFF0F3F1),
-    surface = Color(0xFF101416), onSurface = Color(0xFFF0F3F1),
-    surfaceContainer = Color(0xFF1B2225), surfaceContainerHigh = Color(0xFF242D30),
-    onSurfaceVariant = Color(0xFFAEBDB7), outlineVariant = Color(0xFF33423D),
+    primary = Color(0xFFF2F2F2), onPrimary = Color(0xFF171717),
+    primaryContainer = Color(0xFF303030), onPrimaryContainer = Color(0xFFF2F2F2),
+    background = Color(0xFF101010), onBackground = Color(0xFFF5F5F5),
+    surface = Color(0xFF101010), onSurface = Color(0xFFF5F5F5),
+    surfaceContainer = Color(0xFF1C1C1E), surfaceContainerHigh = Color(0xFF2C2C2E),
+    onSurfaceVariant = Color(0xFFAAAAAE), outlineVariant = Color(0xFF38383A),
     error = Color(0xFFFFB4AB))
 private val light = lightColorScheme(
-    primary = Color(0xFF246B50), onPrimary = Color.White,
-    primaryContainer = Color(0xFFC7EEDC), onPrimaryContainer = Color(0xFF173A2C),
-    background = Color(0xFFF5F8F6), surface = Color(0xFFF5F8F6),
-    surfaceContainer = Color(0xFFE9EFEB), surfaceContainerHigh = Color(0xFFDFE7E2),
-    onSurface = Color(0xFF17211D), onSurfaceVariant = Color(0xFF485C51),
-    outlineVariant = Color(0xFFC7D5CD), error = Color(0xFF9C302D))
+    primary = Color(0xFF171717), onPrimary = Color.White,
+    primaryContainer = Color(0xFFE6E6E8), onPrimaryContainer = Color(0xFF171717),
+    background = Color(0xFFF9F9FA), surface = Color(0xFFF9F9FA),
+    surfaceContainer = Color(0xFFF0F0F2), surfaceContainerHigh = Color(0xFFE5E5E8),
+    onSurface = Color(0xFF171717), onSurfaceVariant = Color(0xFF636366),
+    outlineVariant = Color(0xFFD4D4D8), error = Color(0xFF9C302D))
 private val type = Typography(
     headlineLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.7).sp),
     headlineMedium = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 27.sp, lineHeight = 34.sp, letterSpacing = (-0.5).sp),

@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import com.codexvoice.app.core.designsystem.*
 import com.codexvoice.app.core.model.*
@@ -17,7 +18,12 @@ import com.codexvoice.app.feature.settings.label
 @Composable
 fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallReason) -> Unit, onHistory: () -> Unit, onSettings: () -> Unit = {}) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-        item { ScreenHeading("Codex Voice", "Your work, within reach.") }
+        item {
+            Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(Icons.Default.Code, "Codex Voice", Modifier.size(36.dp))
+                Text("Codex Voice", style = MaterialTheme.typography.headlineMedium)
+            }
+        }
         item {
             Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -26,7 +32,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
                         Icon(Icons.Default.Computer, null, tint = MaterialTheme.colorScheme.primary)
                         Text(if (state.demoMode) "PC bridge is not connected" else state.remote?.status?.label() ?: "No PC paired", style = MaterialTheme.typography.titleMedium)
                     }
-                    Text(if (state.demoMode) "Explore local sample tasks and call previews." else state.remote?.problem?.takeIf { it.isNotEmpty() } ?: "Read recent tasks from your companion-managed PC conversations.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    state.remote?.problem?.takeIf { it.isNotEmpty() && !state.demoMode }?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     if (!state.demoMode) {
                         state.remote?.snapshot?.let { Text("Last synchronized · ${formattedTime(it.syncedAt)}", style = MaterialTheme.typography.bodySmall) }
                         if (state.remote?.status != RemoteStatus.CONNECTED && state.remote?.snapshot != null) Text("Last known state · may be stale", color = MaterialTheme.colorScheme.error)
@@ -41,7 +47,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
             Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Try a demo call", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    Text("In-app preview. No ringing, microphone or audio.", color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Text("Simulated · Microphone off", color = MaterialTheme.colorScheme.onPrimaryContainer)
                     Button(onClick = { onDemo(CallReason.COMPLETION) }, modifier = Modifier.fillMaxWidth()) {
                         Icon(Icons.Default.Call, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
                         Text("Preview completed-task call")
@@ -70,7 +76,6 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
         }
         if (state.history.isEmpty()) item { EmptyState("A quiet workspace", if (state.demoMode) "No sample activity. Reset the demo from History." else "No recent synchronized task events.") }
         items(state.history.take(2), key = { it.id }) { TaskCard(it, reduceMotion) }
-        item { Text(if (state.demoMode || state.remote?.snapshot?.mode == "mock") "All tasks on this screen are simulated." else "Recent synchronized events only. Task summaries omit private prompts and response text.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
     }
 }
 

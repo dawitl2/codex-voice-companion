@@ -63,7 +63,8 @@ export class MediaTransportServer {
         } else this.control(session, JSON.parse(data.toString()) as Record<string, unknown>);
       } catch (error) {
         if (error instanceof Error && error.message === 'audio_sequence_error') session.metrics.sequenceErrors++;
-        this.fail(session, 'invalid_media');
+        const code = error instanceof Error && ['audio_rate_limited','audio_sequence_error','invalid_audio_frame','invalid_audio_timestamp','media_not_active'].includes(error.message) ? error.message : 'invalid_media';
+        this.fail(session, code);
       }
     });
   }

@@ -15,11 +15,11 @@ export function validateAudioFrame(frame: Buffer, direction: 0 | 1): { sequence:
 /** Timestamps are sender-monotonic: only relative transit delay can be inferred. */
 export class AudioSequence {
   private sequence = -1; private timestamp = -1; private origin: { sender: number; arrival: number } | undefined;
-  private window = -1; private count = 0;
+  private refillAt: number | undefined; private tokens = 150;
   dropped = 0; sequenceErrors = 0; relativeDelayMs = 0;
   accept(sequence: number, timestamp: number, arrival: number): boolean {
-    if (arrival - this.window >= 1000 || this.window < 0) { this.window = arrival; this.count = 0; }
-    if (++this.count > 75) throw new Error('audio_rate_limited');
+    this.tokens = Math.min(150, this.tokens + Math.max(0, arrival - (this.refillAt ?? arrival)) * .075); this.refillAt = arrival;
+    if (this.tokens < 1) throw new Error('audio_rate_limited'); this.tokens--;
     if (sequence <= this.sequence || timestamp < this.timestamp) { this.sequenceErrors++; throw new Error('audio_sequence_error'); }
     if (this.sequence >= 0) this.dropped += sequence - this.sequence - 1;
     this.sequence = sequence; this.timestamp = timestamp;

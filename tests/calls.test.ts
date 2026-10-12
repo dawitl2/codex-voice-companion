@@ -107,7 +107,7 @@ test('sequence validation rejects replay and clock reversal while counting gaps 
   assert.equal(stream.accept(3, 1060, 1000), false); assert.equal(stream.relativeDelayMs, 940);
 });
 test('media rate and bounded queues drop stale backlog rather than growing memory', () => {
-  const stream = new AudioSequence(); for (let i = 0; i < 75; i++) stream.accept(i, i * 20, 0); assert.throws(() => stream.accept(75, 1500, 0), /audio_rate_limited/);
+  const stream = new AudioSequence(); for (let i = 0; i < 150; i++) stream.accept(i, i * 20, 0); assert.throws(() => stream.accept(150, 3000, 0), /audio_rate_limited/);
   const queue = new BoundedAudioQueue<number>(3); for (let i = 0; i < 100; i++) queue.push(i);
   assert.equal(queue.size, 3); assert.equal(queue.dropped, 97); assert.equal(queue.shift(), 97); queue.clear(); assert.equal(queue.size, 0);
 });

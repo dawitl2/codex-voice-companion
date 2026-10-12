@@ -44,6 +44,12 @@ class AudioTransportTest {
         assertTrue(mayRecover(LivePhase.RECONNECTING, true, true, 0)); assertTrue(mayRecover(LivePhase.RECONNECTING, true, true, 1))
         assertFalse(mayRecover(LivePhase.RECONNECTING, true, true, 2)); assertFalse(mayRecover(LivePhase.RECONNECTING, false, true, 0)); assertFalse(mayRecover(LivePhase.RECONNECTING, true, false, 0))
     }
+    @Test fun delayedOfferedStatusCannotRegressAnswerOrResurrectACancelledCall() {
+        assertTrue(acceptsCallSnapshot(LivePhase.OFFERED, "offered"))
+        assertFalse(acceptsCallSnapshot(LivePhase.CONNECTING, "offered"))
+        assertFalse(acceptsCallSnapshot(LivePhase.ENDED, "connecting"))
+        assertTrue(acceptsCallSnapshot(LivePhase.CONNECTING, "expired"))
+    }
     @Test fun callProtocolRemainsStrictAndMediaSecretsAreRedacted() {
         val row = JsonParser.parseString("""{"callId":"${UUID.randomUUID()}","eventId":"${"a".repeat(64)}","threadId":"thread","turnId":"turn","kind":"completed","mode":"mock","createdAt":"2026-10-12T00:00:00Z","expiresAt":"2026-10-12T00:02:00Z","acceptedAt":null,"endedAt":null,"state":"offered","muted":false,"reason":"task_event"}""").asJsonObject
         assertEquals("offered", CallWire.offer(row).state)

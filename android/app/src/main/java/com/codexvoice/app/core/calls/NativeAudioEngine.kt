@@ -58,7 +58,7 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
                     when (message["type"].asString) {
                         "media.ready" -> {
                             require(!ready && message.keySet() == setOf("version","type","callId","format") && message["callId"].asString == grant.call.callId)
-                            CallWire.format(message.getAsJsonObject("format")); ready = true; scope.launch { startAudio() }
+                            CallWire.format(message.getAsJsonObject("format")); ready = true; CallDiagnostics.record(context, "media_ready"); scope.launch { startAudio() }
                         }
                         "media.metrics" -> {
                             require(ready && message.keySet() == setOf("version","type","callId","uplinkFrames","downlinkFrames","droppedFrames","sequenceErrors","inputLevel","relativeDelayMs","rttMs","muted") && message["callId"].asString == grant.call.callId)
@@ -121,11 +121,13 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
             CallRuntime.update { it.copy(phase = LivePhase.ACTIVE, muted = muted, capturing = !muted, playing = true, problem = "", activeAt = if (it.activeAt == 0L) SystemClock.elapsedRealtime() else it.activeAt,
                 captureSampleRate = record!!.sampleRate, playbackSampleRate = track!!.sampleRate) }
             routeState()
+            CallDiagnostics.record(context, "capture_started")
             captureJob = scope.launch { capture() }; playJob = scope.launch { playback() }
         } catch (_: Exception) { finish("Microphone or playback initialization failed", false) }
     }
     private suspend fun capture() {
         val samples = ShortArray(320); val bytes = ByteArray(660); var sequence = 0L; var offset = 0
+        var sent = 0L; var publishAt = 0L
         val recorder = record ?: return
         try {
             while (scope.isActive && !closed.get()) {
@@ -142,20 +144,30 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
                 AudioFrames.encode(bytes, samples, sequence++, SystemClock.elapsedRealtime())
                 if (muted || closed.get()) continue
                 check(socket!!.send(bytes.toByteString()))
-                CallRuntime.update { it.copy(uplinkFrames = it.uplinkFrames + 1, inputLevel = AudioFrames.level(samples), capturing = recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) }
+                sent++
+                val now = SystemClock.elapsedRealtime()
+                if (now >= publishAt) {
+                    publishAt = now + 200
+                    CallRuntime.update { it.copy(uplinkFrames = sent, inputLevel = AudioFrames.level(samples), capturing = recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) }
+                }
             }
         } catch (_: Exception) { if (!closed.get()) finish("Microphone capture failed", false) }
         finally { samples.fill(0); bytes.fill(0) }
     }
     private suspend fun playback() {
         val silence = ByteArray(640); val player = track ?: return; var started = false
+        var publishAt = 0L
         try {
             while (scope.isActive && !closed.get()) {
                 if (!started && jitter.size() < 2) { delay(20); continue }
                 started = true; val chunk = jitter.take(SystemClock.elapsedRealtime()); val pcm = chunk?.pcm ?: silence
                 var offset = 0
                 while (offset < pcm.size && !closed.get()) { val count = player.write(pcm, offset, pcm.size - offset, AudioTrack.WRITE_BLOCKING); check(count > 0); offset += count }
-                CallRuntime.update { it.copy(outputLevel = chunk?.level ?: 0f, underruns = player.underrunCount.toLong(), dropped = jitter.dropped + sequence.dropped, renderedSamples = player.playbackHeadPosition.toLong() and 0xffffffffL) }
+                val now = SystemClock.elapsedRealtime()
+                if (now >= publishAt) {
+                    publishAt = now + 200
+                    CallRuntime.update { it.copy(outputLevel = chunk?.level ?: 0f, underruns = player.underrunCount.toLong(), dropped = jitter.dropped + sequence.dropped, renderedSamples = player.playbackHeadPosition.toLong() and 0xffffffffL) }
+                }
                 chunk?.pcm?.fill(0)
             }
         } catch (_: Exception) { if (!closed.get()) finish("Audio playback failed", false) }
@@ -190,6 +202,7 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
     fun end() { socket?.send("""{"version":1,"type":"media.end"}"""); finish("Ended by you", false) }
     private fun finish(reason: String, recoverable: Boolean) {
         if (!closed.compareAndSet(false, true)) return
+        CallDiagnostics.record(context, "media_lost")
         ready = false; muted = true
         scope.launch {
             try { record?.stop() } catch (_: Exception) { }

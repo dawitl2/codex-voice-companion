@@ -22,7 +22,7 @@ import kotlinx.coroutines.delay
 private fun VoiceIdentity(size: Int = 96) {
     Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(size.dp)) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.GraphicEq, "Codex Voice identity", Modifier.size((size / 2).dp), tint = MaterialTheme.colorScheme.primary)
+            Icon(Icons.Default.Code, "Codex Voice identity", Modifier.size((size / 2).dp), tint = MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -49,17 +49,16 @@ fun IncomingCallScreen(session: CallSession, reduceMotion: Boolean, onAnswer: ()
                         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(session.task.title, style = MaterialTheme.typography.titleMedium)
                             Text(session.task.project, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("In-app demonstration. No real call or audio.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Simulated · Microphone off", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        CallAction("Decline", Icons.Default.CallEnd, MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer, onDecline)
-                        CallAction("Answer", Icons.Default.Call, MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary, onAnswer)
+                        CallAction("Decline", Icons.Default.CallEnd, androidx.compose.ui.graphics.Color(0xFFFF453A), androidx.compose.ui.graphics.Color.White, onDecline)
+                        CallAction("Answer", Icons.Default.Call, androidx.compose.ui.graphics.Color(0xFF30B963), androidx.compose.ui.graphics.Color.White, onAnswer)
                     }
                 }
-                item { Text("Answer to read a sample summary.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
         }
     }
@@ -99,7 +98,7 @@ fun ActiveCallScreen(session: CallSession, onMute: () -> Unit, onHangUp: () -> U
                         Text("Speaker · later", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                Button(onHangUp, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) {
+                Button(onHangUp, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFFF453A), contentColor = androidx.compose.ui.graphics.Color.White)) {
                     Icon(Icons.Default.CallEnd, null); Spacer(Modifier.width(10.dp)); Text("Hang up")
                 }
             }

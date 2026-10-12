@@ -65,12 +65,12 @@ test('mute drops microphone content on the PC and malformed/replayed frames fail
   c.ws.send(audioFrame(0, 100, Buffer.alloc(640, 9), 0)); await new Promise(r => setTimeout(r, 30)); assert.equal(f.media.diagnostics().at(-1)?.metrics.uplinkFrames, 0);
   f.calls.mute(f.credential.deviceId, f.offer.callId, false); c.ws.send(audioFrame(1, 120, Buffer.alloc(640, 9), 0)); await until(() => f.media.diagnostics().at(-1)?.metrics.uplinkFrames === 1);
   const closed = once(c.ws, 'close'); c.ws.send(audioFrame(1, 120, Buffer.alloc(640), 0)); await closed;
-  assert.equal(f.calls.status(f.credential.deviceId, f.offer.callId).reason, 'invalid_media'); assert.equal(f.media.diagnostics().at(-1)?.metrics.sequenceErrors, 1);
+  assert.equal(f.calls.status(f.credential.deviceId, f.offer.callId).reason, 'audio_sequence_error'); assert.equal(f.media.diagnostics().at(-1)?.metrics.sequenceErrors, 1);
 });
 test('oversized audio and excessive frame rate close abusive sessions without changing monitor limits', async t => {
   for (const oversized of [true, false]) {
     const f = await fixture(t), c = await openMedia(f); const closed = once(c.ws, 'close');
-    if (oversized) c.ws.send(Buffer.alloc(1025)); else for (let i = 0; i < 76; i++) c.ws.send(audioFrame(i, i * 20, Buffer.alloc(640), 0));
+    if (oversized) c.ws.send(Buffer.alloc(1025)); else for (let i = 0; i < 151; i++) c.ws.send(audioFrame(i, i * 20, Buffer.alloc(640), 0));
     await closed; await until(() => f.media.connected === 0); assert.equal(f.calls.status(f.credential.deviceId, f.offer.callId).state, 'failed');
   }
 });

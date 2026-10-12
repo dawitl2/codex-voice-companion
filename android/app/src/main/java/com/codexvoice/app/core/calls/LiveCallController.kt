@@ -42,24 +42,31 @@ class LiveCallController(private val context: Context, private val client: Remot
                             if (offer.callId == state.value.offer?.callId && offer.state in setOf("ended","failed","expired","declined")) CallRuntime.command(context, CallAudioService.END)
                         } else if (operation == "offer" && offer.eventId == wantedEvent) {
                             resumes = 0; wantedEvent = null
+                            CallDiagnostics.record(context, "offer_received")
                             CallRuntime.update { LiveCallState(phase = phase(offer.state), offer = offer, muted = offer.muted) }
-                        } else if (offer.callId == state.value.offer?.callId) CallRuntime.update { it.copy(offer = offer, phase = phase(offer.state), problem = if (offer.state == "expired") "Call invitation expired; task results remain available" else it.problem) }
+                        } else if (offer.callId == state.value.offer?.callId &&
+                            acceptsCallSnapshot(state.value.phase, offer.state)) {
+                            // A status requested before Answer must not regress a connecting call.
+                            CallRuntime.update { it.copy(offer = offer, phase = phase(offer.state), problem = if (offer.state == "expired") "Call invitation expired; task results remain available" else it.problem) }
+                        }
                     } else if (operation == "offer") wantedEvent = null
                 }
                 "call.media.response" -> {
                     resumePending = false
                     val grant = CallWire.grant(response.payload)
                     if (state.value.phase !in setOf(LivePhase.CONNECTING, LivePhase.RECONNECTING)) {
+                        CallDiagnostics.record(context, "grant_stale")
                         request("call.end", mapOf("callId" to grant.call.callId), "end"); return@collect
                     }
                     val credential = KeystoreCredentialStore(context).load()
                     val expected = credential?.let { java.net.URI(it.endpoint) }; val media = java.net.URI(grant.endpoint)
                     val allowed = foreground && credential != null && expected?.host == media.host && ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
                     if (!allowed || grant.call.callId != state.value.offer?.callId || grant.expiresAt <= System.currentTimeMillis()) {
+                        CallDiagnostics.record(context, if (!foreground) "grant_not_visible" else "grant_rejected")
                         request("call.end", mapOf("callId" to grant.call.callId), "end"); CallRuntime.update { it.copy(phase = LivePhase.FAILED, problem = "Return to the app to start an authorized microphone session") }; return@collect
                     }
                     CallRuntime.prepare(grant)
-                    try { ContextCompat.startForegroundService(context, Intent(context, CallAudioService::class.java).setAction(CallAudioService.CONNECT)) }
+                    try { CallDiagnostics.record(context, "service_requested"); ContextCompat.startForegroundService(context, Intent(context, CallAudioService::class.java).setAction(CallAudioService.CONNECT)) }
                     catch (_: Exception) { request("call.end", mapOf("callId" to grant.call.callId), "end"); CallRuntime.update { it.copy(phase = LivePhase.FAILED, problem = "Android could not start the microphone service") } }
                 }
                 "call.error" -> {
@@ -106,11 +113,13 @@ class LiveCallController(private val context: Context, private val client: Remot
         wantedEvent = eventId; requestedEvent = null; sync()
     }
     fun answer(permitted: Boolean) = scope.launch {
+        if (state.value.phase != LivePhase.OFFERED) return@launch
         val offer = state.value.offer ?: return@launch
         if (!permitted) { CallRuntime.update { it.copy(permissionDenied = true, problem = "Microphone permission is needed for a real audio session. No capture started.") }; return@launch }
         if (!TaskNotifications.permission(context)) { CallRuntime.update { it.copy(problem = "Enable Android notifications so the ongoing audio session stays visible") }; return@launch }
         if (!canAnswer(offer, System.currentTimeMillis(), foreground, permitted) || client.state.value.status != RemoteStatus.CONNECTED) { CallRuntime.update { it.copy(problem = "Call is unavailable; connect to the PC or review results") }; return@launch }
         CallRuntime.update { it.copy(phase = LivePhase.CONNECTING, permissionDenied = false, problem = "") }
+        CallDiagnostics.record(context, "answer_requested")
         connectDeadline = System.currentTimeMillis() + 20000
         request("call.accept", mapOf("callId" to offer.callId), "accept")
     }
@@ -127,8 +136,9 @@ class LiveCallController(private val context: Context, private val client: Remot
         wantedEvent = null; requestedEvent = null; CallRuntime.dismiss()
     }
     fun end() = scope.launch {
+        CallDiagnostics.record(context, "user_ended")
         if (state.value.serviceRunning) CallRuntime.command(context, CallAudioService.END)
         else { state.value.offer?.let { request("call.end", mapOf("callId" to it.callId), "end") }; CallRuntime.update { it.copy(phase = LivePhase.ENDED, problem = "Cancelled by you") } }
     }
-    fun dismiss() { if (!state.value.serviceRunning) { wantedEvent = null; requestedEvent = null; CallRuntime.dismiss() } }
+    fun dismiss() { if (!state.value.serviceRunning) { CallDiagnostics.record(context, "ui_dismissed"); wantedEvent = null; requestedEvent = null; CallRuntime.dismiss() } }
 }

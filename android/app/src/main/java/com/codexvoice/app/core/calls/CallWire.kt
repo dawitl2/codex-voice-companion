@@ -62,3 +62,4 @@ fun canAnswer(offer: CallOffer?, now: Long, foreground: Boolean, permitted: Bool
 fun canTransmit(phase: LivePhase, muted: Boolean, authorized: Boolean) = phase == LivePhase.ACTIVE && !muted && authorized
 fun mayRecover(phase: LivePhase, foreground: Boolean, connected: Boolean, attempts: Int) =
     phase == LivePhase.RECONNECTING && foreground && connected && attempts in 0..1
+fun acceptsCallSnapshot(phase: LivePhase, serverState: String) = phase == LivePhase.OFFERED || serverState in setOf("ended","failed","expired","declined")
