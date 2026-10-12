@@ -24,23 +24,18 @@ internal val android.content.Context.preferencesStore by preferencesDataStore(na
 
 class MainActivity : ComponentActivity() {
     private var dashboardModel: DashboardViewModel? = null
+    private lateinit var runtime: CompanionRuntime
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        runtime = CompanionRuntime.acquire(applicationContext)
         val factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 require(modelClass == DashboardViewModel::class.java)
-                val remoteScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-                val connectionPrefs = applicationContext.getSharedPreferences("connection-mode", MODE_PRIVATE)
-                val client = RemoteClient(remoteScope, OkHttpSocketFactory(), KeystoreCredentialStore(applicationContext))
-                val repository = CompanionTaskRepository(client, remoteScope, connectionPrefs.getBoolean("demo", false),
-                    { value -> if (!connectionPrefs.edit().putBoolean("demo", value).commit()) throw java.io.IOException("Could not save mode") })
-                val preferences = DataStorePreferencesRepository(applicationContext.preferencesStore)
-                return DashboardViewModel(repository, preferences, notifications = NotificationController(applicationContext, client, preferences, remoteScope),
-                    liveCalls = LiveCallController(applicationContext, client, preferences, remoteScope),
-                    speech = SpeechSessionController(applicationContext, client, preferences, remoteScope),
-                    controls=com.codexvoice.app.core.control.TaskControlController(client,remoteScope)) as T
+                return DashboardViewModel(runtime.repository, runtime.preferences, notifications = runtime.notifications,
+                    liveCalls = runtime.calls, speech = runtime.speech, controls = runtime.controls,
+                    ownsRuntime = false) as T
             }
         }
         setContent {
@@ -51,4 +46,5 @@ class MainActivity : ComponentActivity() {
         }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); intent.getStringExtra(TaskNotifications.EXTRA_EVENT)?.let { dashboardModel?.openNotification(it) } }
+    override fun onDestroy() { runtime.release(); super.onDestroy() }
 }

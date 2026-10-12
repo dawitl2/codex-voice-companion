@@ -26,6 +26,7 @@ class DashboardViewModel(
     private val liveCalls: LiveCallController? = null,
     private val speech: SpeechSessionController? = null,
     private val controls:com.codexvoice.app.core.control.TaskControlController?=null,
+    private val ownsRuntime: Boolean = true,
 ) : ViewModel() {
     private val basicDashboard = combine(tasks.current, tasks.history, tasks.connection) { task, history, connection ->
         DashboardState(task, sortedHistory(history), connection)
@@ -97,7 +98,7 @@ class DashboardViewModel(
     fun disconnectPc() { (tasks as? CompanionTaskRepository)?.disconnect() }
     fun forgetPc() { (tasks as? CompanionTaskRepository)?.forget() }
     fun refreshPc() { (tasks as? CompanionTaskRepository)?.refresh() }
-    override fun onCleared() { controls?.close();speech?.close(); (tasks as? CompanionTaskRepository)?.close(); super.onCleared() }
+    override fun onCleared() { if (ownsRuntime) { controls?.close();speech?.close(); (tasks as? CompanionTaskRepository)?.close() }; super.onCleared() }
     fun setTheme(mode: ThemeMode) = save { settings.setTheme(mode) }
     fun setCalling(completion: Boolean, failure: Boolean, approval: Boolean) =
         save { settings.setCalling(completion, failure, approval) }

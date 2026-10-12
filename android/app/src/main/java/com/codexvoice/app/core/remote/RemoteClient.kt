@@ -25,6 +25,8 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     private var credential: Credential? = null; private var socket: RemoteSocket? = null; private var generation = 0
     private var timeout: Job? = null; private var retry: Job? = null; private var heartbeat: Job? = null
     private var attempts = 0; private var foreground = false; private var desired = false; private var authenticated = false
+    private var callActive = false
+    private val connectionOwned get() = foreground || callActive
     private var invitation: String? = null; private var helloId: String? = null; private var authId: String? = null; private var snapshotId: String? = null
     private var sessionEpoch: String? = null
     init {
@@ -45,9 +47,18 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         val changed = foreground != active
         foreground = active
         if (active && !changed) return@post
-        if (!active) { stopSocket(); if (credential != null) update(RemoteStatus.DISCONNECTED, "App paused; displayed history may be stale.") }
-        else if (credential?.enabled == true && !desired) { desired = true; attempts = 0; open() }
-        else if (desired && credential != null) { attempts = 0; open() }
+        reconcileOwnership()
+    }
+    /** Only the already-running, consented microphone service holds this lease. */
+    fun activeCall(active: Boolean) = post {
+        if (callActive == active) return@post
+        callActive = active; reconcileOwnership()
+    }
+    private fun reconcileOwnership() {
+        if (!connectionOwned) { stopSocket(); if (credential != null) update(RemoteStatus.DISCONNECTED, "App paused; displayed history may be stale.") }
+        else if (socket == null && retry?.isActive != true && credential?.enabled == true) {
+            desired = true; attempts = 0; open()
+        }
     }
     fun pair(address: String, code: String) = post {
         try {
@@ -110,7 +121,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         notificationPending.clear()
     }
     private fun open() {
-        stopSocket(); if (!desired || !foreground) return
+        stopSocket(); if (!desired || !connectionOwned) return
         val attemptGeneration = generation
         update(if (attempts == 0) RemoteStatus.CONNECTING else RemoteStatus.RECONNECTING)
         try {
@@ -204,9 +215,9 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         }
         if (pairing) { desired = false; invitation = null; update(RemoteStatus.PAIR_FAILED, "Pairing connection failed. Check Tailscale and request a fresh PC invitation."); return }
         val wait = reconnectDelay(attempts++, jitter())
-        if (!foreground || wait == null) { desired = false; update(RemoteStatus.DISCONNECTED, "PC unreachable. Check Tailscale, then tap Connect."); return }
+        if (!connectionOwned || wait == null) { desired = false; update(RemoteStatus.DISCONNECTED, "PC unreachable. Check Tailscale, then tap Connect."); return }
         update(RemoteStatus.RECONNECTING, "Connection lost; cached history may be stale.")
-        retry = scope.launch { delay(wait); post { if (desired && foreground) open() } }
+        retry = scope.launch { delay(wait); post { if (desired && connectionOwned) open() } }
     }
     private fun errorMessage(code: String) = when (code) {
         "revoked", "invalid_credentials" -> "This device needs pairing again. Request a new invitation on the PC."

@@ -42,6 +42,25 @@ private fun credential() = Credential(endpoint, UUID.randomUUID().toString(), "A
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RemoteClientTest {
+    @Test fun answeredServiceRetainsSocketAcrossBackgroundAndRotationThenReleasesIt() = runTest {
+        val sockets = FakeSockets(); val client = RemoteClient(backgroundScope, sockets, MemoryCredentials(credential()))
+        client.foreground(true); runCurrent(); client.activeCall(true); client.foreground(false); runCurrent()
+        assertFalse(sockets.sessions.single().closed)
+        client.foreground(true); runCurrent(); assertEquals(1, sockets.sessions.size)
+        client.foreground(false); client.activeCall(false); runCurrent()
+        assertTrue(sockets.sessions.single().closed)
+        assertEquals(RemoteStatus.DISCONNECTED, client.state.value.status)
+    }
+    @Test fun serviceLeaseRetriesInBackgroundButExplicitDisconnectOverridesIt() = runTest {
+        val store = MemoryCredentials(credential()); val sockets = FakeSockets()
+        val client = RemoteClient(backgroundScope, sockets, store, jitter = { .5 })
+        client.foreground(true); client.activeCall(true); client.foreground(false); runCurrent()
+        sockets.sessions.last().observer.failed("unreachable"); runCurrent(); advanceTimeBy(1000); runCurrent()
+        assertEquals(2, sockets.sessions.size)
+        client.disconnect(); runCurrent(); client.activeCall(false); client.activeCall(true); runCurrent()
+        advanceTimeBy(120000); runCurrent()
+        assertEquals(2, sockets.sessions.size); assertFalse(store.value!!.enabled)
+    }
     @Test fun failedHelloSendRemainsRecoverableAndRepeatedForegroundDoesNotOpenAnotherSocket() = runTest {
         val sockets = FakeSockets(); val client = RemoteClient(backgroundScope, sockets, MemoryCredentials(credential()), jitter = { .5 })
         client.foreground(true); runCurrent(); client.foreground(true); runCurrent()

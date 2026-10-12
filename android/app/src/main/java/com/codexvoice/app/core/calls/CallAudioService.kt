@@ -32,6 +32,7 @@ class CallAudioService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var recovery: Job? = null
     private var wake: PowerManager.WakeLock? = null
+    private var durationLimit: Job? = null
     override fun onCreate() {
         super.onCreate()
         scope.launch { DataStorePreferencesRepository(applicationContext.preferencesStore).preferences.collect { speechPreferences=it; synthesizer?.configure(it) } }
@@ -43,6 +44,10 @@ class CallAudioService : Service() {
                 val grant = CallRuntime.consume(); if (grant == null || engine != null) { if (engine == null) stopSelf(); return START_NOT_STICKY }
                 try {
                     recovery?.cancel(); ongoing()
+                    if (durationLimit == null) durationLimit = scope.launch {
+                        delay(1800000)
+                        engine?.end() ?: ended("Call ended: duration limit", false)
+                    }
                     wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "CodexVoice:ActiveAudio").apply { acquire(1800000) }
                     CallRuntime.update { it.copy(phase = LivePhase.CONNECTING, offer = grant.call, serviceRunning = true, capturing = false, playing = false) }
                     if (SpeechRuntime.state.value.callId != grant.call.callId) SpeechRuntime.begin(grant.call.callId)
@@ -93,13 +98,13 @@ class CallAudioService : Service() {
         CallRuntime.update { it.copy(phase = if (recoverable) LivePhase.RECONNECTING else if (reason.startsWith("Ended") || reason.startsWith("Call ended")) LivePhase.ENDED else LivePhase.FAILED,
             capturing = false, playing = false, inputLevel = 0f, outputLevel = 0f, problem = reason, endedAt = if (recoverable) 0 else SystemClock.elapsedRealtime()) }
         if (recoverable) recovery = scope.launch { delay(15000); if (engine == null) ended("Reconnection unavailable; call ended", false) }
-        else { recovery?.cancel(); CallRuntime.update { it.copy(serviceRunning = false) }; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
+        else { recovery?.cancel(); durationLimit?.cancel(); CallRuntime.update { it.copy(serviceRunning = false) }; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
     }
     override fun onTaskRemoved(rootIntent: Intent?) { engine?.end(); super.onTaskRemoved(rootIntent) }
     override fun onDestroy() {
         synthesizer?.close(); synthesizer=null; SpeechRuntime.clear()
         ConversationRuntime.clear()
-        recovery?.cancel(); engine?.destroy(); engine = null
+        recovery?.cancel(); durationLimit?.cancel(); engine?.destroy(); engine = null
         wake?.let { if (it.isHeld) it.release() }; wake = null
         CallRuntime.update { it.copy(serviceRunning = false, capturing = false, playing = false,
             phase = if (it.phase in setOf(LivePhase.CONNECTING, LivePhase.ACTIVE, LivePhase.RECONNECTING)) LivePhase.FAILED else it.phase,
