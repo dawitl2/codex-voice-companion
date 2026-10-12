@@ -40,7 +40,7 @@ class AppFlowTest {
         compose.onNodeWithText("Settings").performClick()
         compose.onNodeWithText("Dark").assertIsDisplayed()
         compose.onNodeWithText("Home").performClick()
-        compose.onNodeWithText("Codex Voice").assertIsDisplayed()
+        compose.onNodeWithText("Your work, within reach.").assertIsDisplayed()
     }
     @Test fun answerMuteAndHangUp() {
         preview()
@@ -65,7 +65,8 @@ class AppFlowTest {
         compose.onNodeWithText("Settings").performClick()
         compose.onNodeWithText("Light").performClick()
         compose.onNodeWithText("Light").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Task failure").performScrollTo().assertIsOn().performClick().assertIsOff()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription("Task failure"))
+        compose.onNodeWithContentDescription("Task failure").assertIsOn().performClick().assertIsOff()
     }
     @Test fun historyFilterAndEmptyStateWork() {
         compose.onNodeWithText("History").performClick()

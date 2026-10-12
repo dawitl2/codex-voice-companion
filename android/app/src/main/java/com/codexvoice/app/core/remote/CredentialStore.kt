@@ -16,9 +16,8 @@ data class Credential(val endpoint: String, val deviceId: String, val token: Str
     override fun toString() = "Credential(redacted)"
 }
 interface CredentialStore { fun load(): Credential?; fun save(credential: Credential); fun clear() }
-class KeystoreCredentialStore(context: Context) : CredentialStore {
+class KeystoreCredentialStore(context: Context, private val alias: String = "codex-voice-pairing-v1") : CredentialStore {
     private val file = AtomicFile(File(context.noBackupFilesDir, "paired-pc.enc"))
-    private val alias = "codex-voice-pairing-v1"
     private val gson = Gson()
     private fun key(create: Boolean): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
