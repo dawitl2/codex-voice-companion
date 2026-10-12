@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {resolve} from 'node:path';
 import {Bridge} from '../src/core/Bridge.js';
+import {AppServerRejection} from '../src/core/AppServerClient.js';
 import {MockTransport} from '../src/core/MockTransport.js';
 import {CallSessionManager} from '../src/calls/CallSessionManager.js';
 import {SubmissionLedger} from '../src/conversation/SubmissionLedger.js';
@@ -83,4 +84,18 @@ test('terminal response is genuine turn output, separated from deterministic sta
   const f=await fixture(t);await f.say('A harmless reply');await f.say('Yes');
   await new Promise(resolve=>setTimeout(resolve,100));const status=f.status();assert.equal(status.submission?.state,'completed');
   const entry=status.entries.find(e=>e.kind==='codex')!;assert.match(entry.text,/MOCK/);assert.match(entry.spoken,/Simulated task/);assert.doesNotMatch(entry.spoken,/tests passed/i);
+});
+test('an explicit server rejection is distinguished from a lost acknowledgement',async t=>{
+  const f=await fixture(t);f.bridge.send=async(_id,_text,guard)=>{guard?.();throw new AppServerRejection('Controlled rejection');};await f.say('A harmless request');await f.say('Yes');
+  assert.equal(f.ledger.list()[0]?.state,'rejected');assert.equal(f.ledger.uncertain(f.threadId),false);assert.equal(f.bridge.store.state.turns.length,0);
+});
+test('protected metadata failure prevents dispatch and changed model invalidates authorization',async t=>{
+  const f=await fixture(t);await f.say('A harmless request');let id=f.status().proposal!.id;
+  f.bridge.threads.get(f.threadId).model+='changed';await assert.rejects(f.voice.confirm(f.device,f.call.callId,id));
+  await f.say('A harmless request');id=f.status().proposal!.id;f.storage.save=()=>{throw new Error('Controlled storage failure');};
+  await assert.rejects(f.voice.confirm(f.device,f.call.callId,id));assert.equal(f.bridge.store.state.turns.length,0);
+});
+test('missing model output is a system status, never a fabricated Codex reply',async t=>{
+  const f=await fixture(t);f.bridge.store.state.turns.push({id:'empty',threadId:f.threadId,status:'completed',startedAt:new Date().toISOString(),finishedAt:new Date().toISOString(),finalResponse:'',commandResults:[],completionEmitted:true});
+  await f.say('What did Codex say?');assert.equal(f.status().entries.at(-1)?.kind,'system');assert.match(f.status().entries.at(-1)!.text,/No final response/);
 });

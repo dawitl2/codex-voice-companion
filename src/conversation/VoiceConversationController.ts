@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {basename} from 'node:path';
 import type {Bridge} from '../core/Bridge.js';
+import {AppServerRejection} from '../core/AppServerClient.js';
 import {TERMINAL,type CallSession, type CallSessionManager} from '../calls/CallSessionManager.js';
 import type {FinalTranscription} from '../speech/SpeechSessionCoordinator.js';
 import {spokenSummary} from '../speech/SpokenSummaryFormatter.js';
@@ -112,7 +113,7 @@ export class VoiceConversationController {
       this.ledger.add({id:p.id,deviceId,callId,threadId:p.threadId,turnId:null,state:'submitting',submittedAt:new Date(this.now()).toISOString(),acceptedAt:null,firstOutputAt:null,finishedAt:null});
     } catch {s.phase='rejected';s.error='submission_storage_unavailable';throw new ConversationError('submission_storage_unavailable');}
     s.submissionId=p.id;
-    let dispatched=false;
+    let dispatched=false;const priorTurns=new Set(this.bridge.store.state.turns.filter(t=>t.threadId===p.threadId).map(t=>t.id));
     try {
       let expectedSelected=p.selected,expectedVersion=p.selectionVersion;
       if(!this.bridge.threads.loaded.has(p.threadId)) {
@@ -128,9 +129,11 @@ export class VoiceConversationController {
       const turnId=await this.bridge.send(p.threadId,p.text,guard);
       this.ledger.update(p.id,{turnId,state:'accepted',acceptedAt:new Date(this.now()).toISOString()});
       if(this.sessions.get(callId)===s) {s.phase='running';s.error='';this.add(s,'Instruction accepted by Codex.');this.safeRefresh(s);}
-    } catch {
-      try {this.ledger.update(p.id,{state:dispatched?'unknown':'rejected',finishedAt:dispatched?null:new Date(this.now()).toISOString()});} catch { /* Existing durable submitting record blocks replay. */ }
-      if(this.sessions.get(callId)===s) {s.phase=dispatched?'unknown':'rejected';s.error=dispatched?'submission_unknown':'submission_rejected';this.add(s,dispatched?"Submission status uncertain. I won't send it again automatically. Review it on the computer.":'The instruction was not sent. Check the call, selected thread and Codex connection.');}
+    } catch(error) {
+      const newTurnObserved=this.bridge.store.state.turns.some(t=>t.threadId===p.threadId && !priorTurns.has(t.id));
+      const uncertain=dispatched && (!(error instanceof AppServerRejection) || newTurnObserved);
+      try {this.ledger.update(p.id,{state:uncertain?'unknown':'rejected',finishedAt:uncertain?null:new Date(this.now()).toISOString()});} catch { /* Existing durable submitting record blocks replay. */ }
+      if(this.sessions.get(callId)===s) {s.phase=uncertain?'unknown':'rejected';s.error=uncertain?'submission_unknown':'submission_rejected';this.add(s,uncertain?"Submission status uncertain. I won't send it again automatically. Review it on the computer.":'Codex did not accept the instruction. Check the call, selected thread and Codex connection.');}
     }
     if(this.sessions.get(callId)!==s) return null;
     return this.status(deviceId,callId);
@@ -164,7 +167,7 @@ export class VoiceConversationController {
   private result(s:Session) {
     const turn=this.bridge.store.state.turns.filter(t=>t.threadId===s.threadId).at(-1);
     if(!turn) {this.add(s,'No result is available.');return;}
-    this.add(s,sanitize(turn.finalResponse || 'No final response is available.',16000),'codex',spokenSummary(this.selected(s),turn));
+    this.add(s,sanitize(turn.finalResponse || 'No final response is available.',16000),turn.finalResponse?'codex':'system',spokenSummary(this.selected(s),turn));
   }
   private refresh(s:Session) {
     if(!s.submissionId) return;
@@ -176,7 +179,7 @@ export class VoiceConversationController {
     if(!s.proposal && (row.state!==state || ['accepted','running','awaitingApproval','unknown'].includes(s.phase))) s.phase=state;
     if(terminal(turn.status) && !s.terminalSpoken.has(turn.id)) {
       s.terminalSpoken.add(turn.id); if(!s.proposal)s.phase=state; const thread=this.bridge.threads.get(turn.threadId);
-      this.add(s,sanitize(turn.finalResponse || 'No final response was provided.',16000),'codex',spokenSummary(thread,turn));
+      this.add(s,sanitize(turn.finalResponse || 'No final response was provided.',16000),turn.finalResponse?'codex':'system',spokenSummary(thread,turn));
     }
   }
   private safeRefresh(s:Session) {try {this.refresh(s);} catch {s.error='submission_storage_unavailable';}}

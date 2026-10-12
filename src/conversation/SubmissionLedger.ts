@@ -16,7 +16,7 @@ export class SubmissionLedger {
       if(!value || typeof value!=='object' || Object.keys(value).length!==fields.length || fields.some(k=>!Object.hasOwn(value,k)) ||
         ![value.id,value.deviceId,value.callId].every(v=>typeof v==='string' && /^[a-f0-9-]{36}$/.test(v)) ||
         ![value.threadId,...(value.turnId===null?[]:[value.turnId])].every(v=>typeof v==='string' && /^[A-Za-z0-9_-]{1,128}$/.test(v)) ||
-        !SUBMISSION_STATES.includes(value.state) || !Number.isFinite(Date.parse(value.submittedAt)) ||
+        !SUBMISSION_STATES.includes(value.state) || typeof value.submittedAt!=='string' || !Number.isFinite(Date.parse(value.submittedAt)) ||
         [value.acceptedAt,value.firstOutputAt,value.finishedAt].some(v=>v!==null && (typeof v!=='string' || !Number.isFinite(Date.parse(v))))) throw new Error('invalid_submission_store');
     }
     if(new Set(raw.map(v=>v.id)).size!==raw.length) throw new Error('invalid_submission_store');

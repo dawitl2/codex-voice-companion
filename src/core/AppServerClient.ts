@@ -1,6 +1,7 @@
 import type { RpcCall, RpcTransport } from '../types/index.js';
 import { object } from '../utils/safe.js';
 
+export class AppServerRejection extends Error {}
 export class AppServerClient {
   private sequence = 0;
   private buffer = '';
@@ -65,7 +66,7 @@ export class AppServerClient {
     const request = this.pending.get(id); if (!request) return; // Late timed-out responses are never replayed.
     const error = 'error' in message ? object(message.error) : undefined;
     clearTimeout(request.timer); this.pending.delete(id);
-    if (error) { request.reject(new Error(typeof error.message === 'string' ? error.message : 'Codex RPC error')); }
+    if (error) { request.reject(new AppServerRejection(typeof error.message === 'string' ? error.message : 'Codex RPC error')); }
     else request.resolve(message.result);
   }
   private fatal(): void { this.disconnect('Malformed app-server protocol; connection closed'); void this.transport.stop().catch(() => {}); }
