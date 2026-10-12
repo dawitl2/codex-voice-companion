@@ -1,6 +1,6 @@
 import test, { after, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -250,8 +250,12 @@ test('workspace-write sandbox keeps network off and rejects extra writable roots
   };
   await assert.rejects(bridge.select(id), /Additional writable roots/);
 });
-test('compiled CLI starts offline, shows status and exits cleanly', async () => {
-  const child = spawn(process.execPath, [join(root, 'dist/src/index.js'), '--mock'], { cwd: root, windowsHide: true, stdio: ['pipe','pipe','pipe'] });
+test('compiled CLI starts offline, shows status and exits cleanly', async t => {
+  // The CLI resolves state relative to its compiled installation. Isolate that installation
+  // so regression tests never acquire or modify a user's running bridge state.
+  const installation = directory(t);
+  cpSync(join(root, 'dist/src'), join(installation, 'dist/src'), { recursive: true });
+  const child = spawn(process.execPath, [join(installation, 'dist/src/index.js'), '--mock'], { cwd: installation, windowsHide: true, stdio: ['pipe','pipe','pipe'] });
   let output = ''; child.stdout.setEncoding('utf8'); child.stdout.on('data', (chunk: string) => { output += chunk; }); child.stderr.on('data', chunk => { output += String(chunk); });
   const exited = new Promise<number | null>((resolveExit, reject) => { child.once('error', reject); child.once('close', resolveExit); });
   child.stdin.end('status\nhelp\nexit\n'); const code = await exited; assert.equal(code, 0, output); assert.match(output, /Mock only/); assert.match(output, /"connection": "ready"/);
