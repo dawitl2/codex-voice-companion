@@ -1,7 +1,7 @@
 import { applicationDefault, deleteApp, initializeApp, type App } from 'firebase-admin/app';
 import { getMessaging, type FidMessage } from 'firebase-admin/messaging';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, relative } from 'node:path';
+import { isAbsolute, relative, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { PushFailure, type PushProvider } from './NotificationDispatcher.js';
@@ -33,7 +33,8 @@ export class FirebasePushProvider implements PushProvider {
       const path = realpathSync(config.credentialPath), location = relative(realpathSync(workspace), path);
       if (!location.startsWith('..') && !isAbsolute(location)) throw new Error();
       // Reject credentials readable by other principals, including inherited grants.
-      const check = spawnSync('powershell.exe', ['-NoProfile','-NonInteractive','-Command', "$ErrorActionPreference='Stop'; $path=[Console]::In.ReadToEnd(); $acl=Get-Acl -LiteralPath $path; $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value; if (-not $acl.AreAccessRulesProtected) { exit 2 }; foreach($rule in $acl.Access) { if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -ne $sid) { exit 3 } }; if ($acl.Owner -ne [Security.Principal.WindowsIdentity]::GetCurrent().Name -and $acl.Owner -ne $sid) { exit 4 }"], { input: path, windowsHide: true, timeout: 10000, stdio: ['pipe','ignore','ignore'] });
+      const executable = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+      const check = spawnSync(executable, ['-NoProfile','-NonInteractive','-Command', "$ErrorActionPreference='Stop'; $path=[Console]::In.ReadToEnd(); $acl=[IO.File]::GetAccessControl($path); $principal=[Security.Principal.WindowsIdentity]::GetCurrent(); $sid=$principal.User.Value; if (-not $acl.AreAccessRulesProtected) { exit 2 }; foreach($rule in $acl.Access) { if ($rule.AccessControlType -eq 'Allow' -and $rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value -ne $sid) { exit 3 } }; if ($acl.Owner -ne $principal.Name -and $acl.Owner -ne $sid) { exit 4 }"], { input: path, windowsHide: true, timeout: 10000, stdio: ['pipe','ignore','ignore'] });
       if (check.status !== 0 || check.error) throw new Error();
       const json = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
       if (json.type !== 'service_account' || json.project_id !== config.projectId || typeof json.private_key !== 'string' || typeof json.client_email !== 'string') throw new Error();

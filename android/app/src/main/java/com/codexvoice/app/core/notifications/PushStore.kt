@@ -16,7 +16,7 @@ import javax.crypto.spec.GCMParameterSpec
 
 data class PushReceipt(val eventId: String, val stage: String)
 data class PushState(val fid: String? = null, val preferences: PushPreferences = PushPreferences(), val events: List<PushEvent> = emptyList(),
-    val receipts: List<PushReceipt> = emptyList(), val seen: Map<String, Long> = emptyMap()) {
+    val receipts: List<PushReceipt> = emptyList(), val seen: Map<String, Long> = emptyMap(), val registeredAt: Long = 0) {
     override fun toString() = "PushState(redacted)"
 }
 class PushStore(context: Context) {
@@ -48,7 +48,7 @@ class PushStore(context: Context) {
         val stream = file.startWrite()
         try { stream.write(bytes); file.finishWrite(stream); mutable.value = next } catch (e: Exception) { file.failWrite(stream); throw e }
     }
-    fun register(fid: String) { require(fid.matches(Regex("[cdef][A-Za-z0-9_-]{21}"))); update { it.copy(fid = fid) } }
+    fun register(fid: String) { require(fid.matches(Regex("[cdef][A-Za-z0-9_-]{21}"))); update { it.copy(fid = fid, registeredAt = System.currentTimeMillis()) } }
     @Synchronized fun accept(event: PushEvent, now: Long): Boolean {
         val current = mutable.value; if (!acceptsPush(event, current.preferences, current.seen, now)) return false
         val fresh = current.seen.filterValues { it > now }; if (fresh.size >= 500) return false

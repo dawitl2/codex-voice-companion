@@ -70,7 +70,9 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         catch (_: Exception) { update(RemoteStatus.STORAGE_ERROR, "Could not remove protected pairing data.") }
     }
     fun refresh() = post { if (authenticated) requestSnapshot() }
-    fun notification(type: String, payload: Map<String, Any> = emptyMap()) = post {
+    fun notification(type: String, payload: Map<String, Any> = emptyMap()): String {
+        val requestId = UUID.randomUUID().toString()
+        post {
         if (!authenticated || notificationPending.size >= 32) return@post
         val expected = when (type) {
             "notification.register", "notification.preferences.update", "notification.status.request" -> "notification.status.response"
@@ -78,7 +80,9 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
             "notification.receipt" -> "notification.receipt.response"
             else -> return@post
         }
-        try { notificationPending[send(type, payload)] = expected } catch (_: Exception) { fail("unreachable") }
+        try { notificationPending[send(type, payload, requestId)] = expected } catch (_: Exception) { fail("unreachable") }
+        }
+        return requestId
     }
     fun close() { closed = true; desired = false; generation++; socket?.close(); timeout?.cancel(); retry?.cancel(); heartbeat?.cancel(); queue.close() }
     private fun update(status: RemoteStatus, problem: String = "") {
@@ -113,8 +117,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     private fun deadline(id: Int) {
         timeout?.cancel(); timeout = scope.launch { delay(15000); post { if (id == generation) fail("timeout") } }
     }
-    private fun send(type: String, payload: Map<String, Any> = emptyMap()): String {
-        val id = UUID.randomUUID().toString()
+    private fun send(type: String, payload: Map<String, Any> = emptyMap(), id: String = UUID.randomUUID().toString()): String {
         check(socket?.send(RemoteProtocol.message(type, payload, id)) == true)
         return id
     }

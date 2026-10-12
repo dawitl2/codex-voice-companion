@@ -19,6 +19,8 @@ class NotificationController(private val context: Context, private val client: R
     private var detailEpoch: String? = null
     private val receiptPending = mutableSetOf<PushReceipt>()
     private var registrationAttempt = false
+    private var registrationRequestedAt = 0L
+    private var registrationRequestId: String? = null
     private var receiptWindow = 0L
     private var receiptCount = 0
     init {
@@ -39,6 +41,7 @@ class NotificationController(private val context: Context, private val client: R
         scope.launch { client.notifications.collect { message ->
             when (message.type) {
                 "notification.status.response" -> {
+                    if (message.correlationId != registrationRequestId) return@collect
                     val configured = message.payload["configured"].asBoolean; val registered = message.payload["registered"].asBoolean
                     val matches = message.payload.getAsJsonObject("preferences").entrySet().all { (key, value) -> serverPreferences()[key] == value.asBoolean }
                     mutable.value = state.value.copy(configured = configured, registered = registered, pending = !matches,
@@ -71,6 +74,7 @@ class NotificationController(private val context: Context, private val client: R
             messaging.isAutoInitEnabled = enabled
             if (enabled && !registrationAttempt) {
                 registrationAttempt = true
+                registrationRequestedAt = System.currentTimeMillis()
                 messaging.register().addOnFailureListener { scope.launch { mutable.value = state.value.copy(status = "Firebase registration failed; reopen to retry", pending = true) } }
             }
         } catch (_: Exception) { mutable.value = state.value.copy(status = "Firebase configuration is unavailable", configured = false) }
@@ -83,12 +87,16 @@ class NotificationController(private val context: Context, private val client: R
             return
         }
         val projectId = try { FirebaseApp.getInstance().options.projectId } catch (_: Exception) { null }
+        if (local.preferences.enabled && local.registeredAt < registrationRequestedAt) {
+            mutable.value = state.value.copy(status = "Refreshing Firebase installation registration", pending = true)
+            return
+        }
         val preferences = serverPreferences()
         val key = "${connection.snapshot?.epoch}|${local.fid}|$preferences"
         if (fingerprint != key) {
             fingerprint = key; mutable.value = state.value.copy(pending = true)
-            if (local.fid != null && projectId != null) client.notification("notification.register", mapOf("fid" to local.fid, "projectId" to projectId, "preferences" to preferences))
-            else if (!local.preferences.enabled) client.notification("notification.status.request")
+            if (local.fid != null && projectId != null) registrationRequestId = client.notification("notification.register", mapOf("fid" to local.fid, "projectId" to projectId, "preferences" to preferences))
+            else if (!local.preferences.enabled) registrationRequestId = client.notification("notification.status.request")
             else mutable.value = state.value.copy(status = "Firebase installation registration pending")
         }
         val credential = try { KeystoreCredentialStore(context).load() } catch (_: Exception) { null }
