@@ -24,3 +24,10 @@ google-services.json
 service-account*.json
 *firebase-adminsdk*.json
 .firebaserc
+
+# Local speech assets and voice data
+speech-models/
+ggml-*.bin
+*.gguf
+*.wav
+*.flac
