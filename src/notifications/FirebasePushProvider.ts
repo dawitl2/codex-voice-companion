@@ -38,7 +38,8 @@ export class FirebasePushProvider implements PushProvider {
       const json = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
       if (json.type !== 'service_account' || json.project_id !== config.projectId || typeof json.private_key !== 'string' || typeof json.client_email !== 'string') throw new Error();
     } catch { throw new Error('Firebase credential validation failed. Use matching service-account JSON outside the repository and run scripts/protect-firebase-credentials.ps1.'); }
-    this.app = initializeApp({ projectId: config.projectId, credential: applicationDefault() }, 'codex-voice-' + randomUUID());
+    try { this.app = initializeApp({ projectId: config.projectId, credential: applicationDefault() }, 'codex-voice-' + randomUUID()); }
+    catch { throw new Error('Firebase Admin initialization failed. Inspect the local configuration without sharing credential content.'); }
   }
   async send(fid: string, payload: PushPayload, ttlMs: number): Promise<void> {
     try { await getMessaging(this.app).send(firebaseMessage(fid, payload, ttlMs)); }
