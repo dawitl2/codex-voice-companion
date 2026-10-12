@@ -26,6 +26,7 @@ pair-device                  Issue one two-minute invitation (--remote required)
 devices                      List paired devices (no credentials)
 notification-status          Non-sensitive push attempts and device observations
 call-status                  Call states and PCM metrics; no audio content
+review-call <device-id>       Offer audio review of the selected stored turn; no inference
 audio-test <call-id>          One brief quiet PC-generated tone on an active call
 end-call <call-id>            End the selected device's audio session
 revoke-device <device-id>     Revoke and disconnect a paired device

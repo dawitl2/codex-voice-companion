@@ -51,3 +51,22 @@ test('call speech authorization rejects wrong owners and cancels in-flight recog
   const call={...offer,deviceId:device,state:"active" as const}; for(let i=0;i<40;i++) speech.frame(call,pcm,.04); speech.finish(device,offer.callId);
   assert.equal(speech.status(device,offer.callId).state,'processing'); manager.end(device,offer.callId); assert.equal(aborted,true); assert.throws(()=>speech.status(device,offer.callId),/call_not_active/);
 });
+
+test('half-duplex playback cancels active and queued utterances and prevents echo recognition', async t=> {
+  const {CallSessionManager}=await import('../src/calls/CallSessionManager.js'); const {SpeechSessionCoordinator}=await import('../src/speech/SpeechSessionCoordinator.js');
+  const device=randomUUID(); let stored:unknown=[];
+  const manager=new CallSessionManager({load:()=>stored,save:v=>{stored=structuredClone(v)}},{hasDevice:id=>id===device}); t.after(()=>manager.close());
+  manager.setPreferences(device,true); const view=manager.review(device,'t','u','real'); const grant=manager.accept(device,view.callId,'owner');
+  manager.consume(grant.token,'owner'); manager.activate(device,view.callId);
+  let jobs=0, aborted=false; const buffers:Buffer[]=[];
+  const engine={prepare:async()=>{},recognize:(audio:Buffer,signal:AbortSignal)=>{ jobs++; buffers.push(audio); return new Promise<never>((_resolve,reject)=>signal.addEventListener('abort',()=>{aborted=true;reject(new Error('cancelled'))})); },close:()=>{}};
+  const speech=new SpeechSessionCoordinator(manager,{store:{state:{threads:[],turns:[]}}} as never,engine); t.after(()=>speech.close()); await speech.initialization;
+  speech.listening(device,view.callId,true); const call={...view,deviceId:device,state:'active' as const};
+  const submit=()=>{ for(let i=0;i<40;i++) speech.frame(call,pcm,.04); speech.finish(device,view.callId); };
+  for(let i=0;i<40;i++) speech.frame({...call,deviceId:randomUUID()},pcm,.04); speech.finish(device,view.callId); assert.equal(jobs,0);
+  submit(); submit(); submit(); assert.equal(jobs,1); assert.equal(speech.status(device,view.callId).error,'recognition_queue_full');
+  speech.playback(device,view.callId,'started'); assert.equal(aborted,true); submit(); assert.equal(jobs,1);
+  await new Promise(resolve=>setImmediate(resolve)); assert.ok(buffers[0]?.every(sample=>sample===0)); assert.equal(speech.status(device,view.callId).utterances.length,0);
+  assert.equal(speech.status(device,view.callId).state,'speaking'); speech.playback(device,view.callId,'interrupted');
+  manager.mute(device,view.callId,true); assert.equal(speech.status(device,view.callId).state,'paused');
+});
