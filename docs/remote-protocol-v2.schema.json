@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:codex-voice:remote:2",
-  "title": "Codex Voice monitoring, notifications, optional calls and local speech envelope v2",
+  "title": "Codex Voice monitoring, notifications, calls, speech and confirmed conversation envelope v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -1046,6 +1046,248 @@
           }
         }
       }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "conversation.status.request"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "callId",
+            "afterSequence"
+          ],
+          "properties": {
+            "callId": {
+              "type": "string",
+              "pattern": "^[a-f0-9-]{36}$"
+            },
+            "afterSequence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "conversation.confirm"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "callId",
+            "confirmationId"
+          ],
+          "properties": {
+            "callId": {
+              "type": "string",
+              "pattern": "^[a-f0-9-]{36}$"
+            },
+            "confirmationId": {
+              "type": "string",
+              "pattern": "^[a-f0-9-]{36}$"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "conversation.cancel"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "callId",
+            "confirmationId"
+          ],
+          "properties": {
+            "callId": {
+              "type": "string",
+              "pattern": "^[a-f0-9-]{36}$"
+            },
+            "confirmationId": {
+              "type": "string",
+              "pattern": "^[a-f0-9-]{36}$"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "conversation.correct"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "callId",
+            "confirmationId",
+            "text"
+          ],
+          "properties": {
+            "callId": {
+              "type": "string",
+              "pattern": "^[a-f0-9-]{36}$"
+            },
+            "confirmationId": {
+              "type": "string",
+              "pattern": "^[a-f0-9-]{36}$"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "conversation.select"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "callId",
+            "threadId"
+          ],
+          "properties": {
+            "callId": {
+              "type": "string",
+              "pattern": "^[a-f0-9-]{36}$"
+            },
+            "threadId": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "conversation.status.response"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "callId",
+            "phase",
+            "error",
+            "selection",
+            "proposal",
+            "submission",
+            "entries"
+          ],
+          "properties": {
+            "callId": {
+              "type": "string",
+              "pattern": "^[a-f0-9-]{36}$"
+            },
+            "phase": {
+              "enum": [
+                "ready",
+                "awaiting_confirmation",
+                "submitting",
+                "accepted",
+                "running",
+                "awaitingApproval",
+                "completed",
+                "failed",
+                "interrupted",
+                "unknown",
+                "rejected",
+                "cancelled",
+                "expired",
+                "busy",
+                "error"
+              ]
+            },
+            "error": {
+              "type": "string",
+              "maxLength": 64,
+              "pattern": "^[a-z_]*$"
+            },
+            "selection": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/conversationSelection"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "proposal": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/voiceProposal"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "submission": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/voiceSubmission"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "entries": {
+              "type": "array",
+              "maxItems": 4,
+              "items": {
+                "$ref": "#/$defs/conversationEntry"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "conversation.error"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z_]+$"
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -1487,6 +1729,213 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 60000
+        }
+      }
+    },
+    "conversationSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "threadId",
+        "label",
+        "project",
+        "mode"
+      ],
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "mode": {
+          "enum": [
+            "mock",
+            "real"
+          ]
+        }
+      }
+    },
+    "voiceProposal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "text",
+        "expiresAt",
+        "threadId",
+        "project"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9-]{36}$"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "threadId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "voiceSubmission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "threadId",
+        "turnId",
+        "state",
+        "submittedAt",
+        "acceptedAt",
+        "firstOutputAt",
+        "finishedAt"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9-]{36}$"
+        },
+        "threadId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "turnId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "submitting",
+            "accepted",
+            "running",
+            "awaitingApproval",
+            "completed",
+            "failed",
+            "interrupted",
+            "unknown",
+            "rejected"
+          ]
+        },
+        "submittedAt": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        },
+        "acceptedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "firstOutputAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finishedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "conversationEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sequence",
+        "kind",
+        "text",
+        "spoken",
+        "timestamp"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-f0-9-]{36}$"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "kind": {
+          "enum": [
+            "system",
+            "codex"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16000,
+          "pattern": "^[^\\u0000-\\u0008\\u000b-\\u001f\\u007f]+$"
+        },
+        "spoken": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
         }
       }
     }
