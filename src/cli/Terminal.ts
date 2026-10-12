@@ -77,6 +77,15 @@ export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices
       case 'approvals': console.table(bridge.approvals.list()); break;
       case 'approve': bridge.approvals.resolve(rest, true); break;
       case 'decline': bridge.approvals.resolve(rest, false); break;
+      case 'remote-review': {
+        const record=bridge.approvals.list().find(r=>r.id===rest);if(!record||!remote?.controls)throw new Error('Pending request and --controls required');
+        bridge.approvals.nominate(rest,bridge.threads.get(record.threadId).cwd);console.log('Exact pending action nominated for authenticated phone review; no decision sent.');break;
+      }
+      case 'reviewers': console.table(remote?.controls?.reviewerList()??[]);break;
+      case 'trust-reviewer': {
+        const [id,fingerprint,...extra]=rest.split(' ');if(!id||!fingerprint||extra.length||!remote?.controls)throw new Error('Usage: trust-reviewer <device-id> <phone-key-fingerprint>');
+        remote.controls.trust(id,fingerprint);console.log('Reviewer key trusted. Each approval still requires fresh phone authentication.');break;
+      }
       case 'reconnect': await bridge.client.close(); await bridge.connect(); console.log('Transport connected; explicitly select a thread to resume'); break;
       case 'pair-device': {
         if (!remote || !devices) throw new Error('Start with --remote and a private WSS endpoint first');

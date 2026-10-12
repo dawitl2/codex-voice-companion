@@ -22,7 +22,7 @@ function powershell(script: string, input: string): string {
 }
 export class WindowsRegistryStorage implements RegistryStorage {
   private readonly file: string;
-  constructor(directory: string, filename: 'devices.dpapi' | 'notifications.dpapi' | 'calls.dpapi' | 'submissions.dpapi' = 'devices.dpapi') {
+  constructor(directory: string, filename: 'devices.dpapi' | 'notifications.dpapi' | 'calls.dpapi' | 'submissions.dpapi' | 'controls.dpapi' = 'devices.dpapi') {
     mkdirSync(directory, { recursive: true }); this.file = join(directory, filename);
     powershell(`$path = [Console]::In.ReadToEnd();
       if ([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse point refused' };

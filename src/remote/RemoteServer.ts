@@ -14,6 +14,7 @@ import type { MediaTransportServer } from '../calls/MediaTransportServer.js';
 import { PCM } from '../calls/AudioProtocol.js';
 import type { SpeechSessionCoordinator } from '../speech/SpeechSessionCoordinator.js';
 import { ConversationError, type VoiceConversationController } from '../conversation/VoiceConversationController.js';
+import {ControlError,type TaskControl} from '../control/TaskControl.js';
 
 export interface NotificationAccess { registry: DeviceRegistry; dispatcher: NotificationDispatcher; projectId: string | undefined }
 export interface CallAccess { manager: CallSessionManager; media: MediaTransportServer; speech?: SpeechSessionCoordinator; conversation?: VoiceConversationController }
@@ -39,7 +40,7 @@ export class RemoteServer {
   private readonly pendingTypes = new Set<string>();
   readonly endpoint: URL;
   constructor(private readonly bridge: Bridge, private readonly access: RemoteAccess,
-    endpoint: string, private readonly port = 8787, private readonly handshakeMs = 15000, private readonly heartbeatMs = 20000, private readonly notifications?: NotificationAccess, private readonly calls?: CallAccess) {
+    endpoint: string, private readonly port = 8787, private readonly handshakeMs = 15000, private readonly heartbeatMs = 20000, private readonly notifications?: NotificationAccess, private readonly calls?: CallAccess, readonly controls?:TaskControl) {
     this.endpoint = privateEndpoint(endpoint);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid remote port');
     this.server.headersTimeout = 10000; this.server.requestTimeout = 15000;
@@ -115,6 +116,7 @@ export class RemoteServer {
     }, 0);
   }
   revoke(deviceId: string): void {
+    this.controls?.revoke(deviceId);
     this.calls?.manager.revoke(deviceId);
     for (const s of this.sessions) if (s.deviceId === deviceId) { this.send(s, 'auth.failed', { code: 'revoked' }); s.socket.close(4003, 'Pair again'); }
   }
@@ -124,7 +126,7 @@ export class RemoteServer {
     this.sessions.add(session);
     socket.on('error', () => {});
     socket.on('pong', () => { session.alive = true; });
-    socket.on('close', () => { clearTimeout(timer); this.sessions.delete(session); if (session.deviceId) this.calls?.conversation?.connection(session.deviceId, -1); });
+    socket.on('close', () => { clearTimeout(timer); this.sessions.delete(session); if (session.deviceId) {this.calls?.conversation?.connection(session.deviceId, -1);this.controls?.connection(session.deviceId,-1);} });
     socket.on('message', (data, binary) => {
       try {
         if (binary) throw new ProtocolError('binary_not_supported');
@@ -148,11 +150,29 @@ export class RemoteServer {
             }
             clearTimeout(timer); this.send(session, 'state.snapshot', this.snapshot());
             this.calls?.conversation?.connection(session.deviceId!, 1);
+            this.controls?.connection(session.deviceId!,1);
           } catch (error) { this.send(session, m.type === 'pair.request' ? 'pair.failed' : 'auth.failed', { code: error instanceof ProtocolError ? error.code : 'storage_unavailable' }, m.id); socket.close(4003, 'Authentication failed'); }
           return;
         }
         if (!session.deviceId) throw new ProtocolError('authentication_required');
-        if (m.type.startsWith('conversation.')) {
+        if(m.type.startsWith('control.')){
+          const deviceId=session.deviceId,p=m.payload as Record<string,unknown>,threadId=String(p.threadId);
+          void(async()=>{try{
+            const c=this.controls;if(!c)throw new ControlError('controls_disabled');
+            let response:unknown;let type='control.status.response';
+            if(m.type==='control.approval.challenge'){response=c.challenge(deviceId,threadId,String(p.approvalId),String(p.transactionId));type='control.approval.challenge.response';}
+            else if(m.type==='control.approval.decide')response=c.decide(deviceId,threadId,String(p.approvalId),String(p.transactionId),p.decision as 'accept'|'decline',p.challengeId as string|null,p.signature as string|null);
+            else if(m.type==='control.confirm')response=await c.confirm(deviceId,threadId,String(p.operationId));
+            else if(m.type==='control.cancel')response=c.cancel(deviceId,threadId,String(p.operationId));
+            else {
+              if(m.type==='control.reviewer.register')c.register(deviceId,String(p.publicKey));
+              if(m.type==='control.interrupt.propose'||m.type==='control.queue.propose'||m.type==='control.deny.propose')c.propose(deviceId,threadId,String(p.turnId),m.type==='control.interrupt.propose'?'interrupt':m.type==='control.queue.propose'?'queue':'deny',typeof p.text==='string'?p.text:'',typeof p.approvalId==='string'?p.approvalId:null);
+              response=c.status(deviceId,threadId);
+            }
+            this.send(session,type,response,m.id);
+          }catch(e){this.send(session,'control.error',{code:e instanceof ControlError?e.code:'control_unavailable'},m.id);}})();
+        }
+        else if (m.type.startsWith('conversation.')) {
           const deviceId=session.deviceId;
           void (async () => {
             try {

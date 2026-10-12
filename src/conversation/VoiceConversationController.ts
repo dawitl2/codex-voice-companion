@@ -9,19 +9,20 @@ import {sanitize,terminal} from '../utils/safe.js';
 import {projectDirectory,samePath} from '../config/settings.js';
 import {voiceIntent} from './VoiceIntent.js';
 import {SubmissionLedger,type SubmissionState} from './SubmissionLedger.js';
+import {TaskControl} from '../control/TaskControl.js';
 
 export class ConversationError extends Error { constructor(readonly code:string){super(code);} }
 interface Proposal { id:string; text:string; expiresAt:string; threadId:string; project:string }
 interface BoundProposal extends Proposal { cwd:string; model:string; selected:string|null; selectionVersion:number; generation:number }
 interface Entry { id:string; sequence:number; kind:'system'|'codex'; text:string; spoken:string; timestamp:string }
-interface Session { callId:string; deviceId:string; threadId:string; generation:number; phase:string; proposal:BoundProposal|null; submissionId:string|null; entries:Entry[]; sequence:number; seen:Set<string>; terminalSpoken:Set<string>; error:string }
+interface Session { callId:string; deviceId:string; threadId:string; generation:number; phase:string; proposal:BoundProposal|null; submissionId:string|null; entries:Entry[]; sequence:number; seen:Set<string>; terminalSpoken:Set<string>; error:string;controlId?:string|undefined;queueNext?:boolean }
 
 /** Consumes only finalized, internally authenticated ASR. No direct RPC or shell forwarding. */
 export class VoiceConversationController {
   private readonly sessions=new Map<string,Session>(); private readonly connected=new Map<string,number>();
   private readonly unsubscribe:()=>void; private readonly events:()=>void; private readonly timer:NodeJS.Timeout;
   private closed=false;
-  constructor(private readonly bridge:Bridge,private readonly calls:CallSessionManager,readonly ledger:SubmissionLedger,private readonly now:()=>number=Date.now) {
+  constructor(private readonly bridge:Bridge,private readonly calls:CallSessionManager,readonly ledger:SubmissionLedger,private readonly now:()=>number=Date.now,private readonly controls?:TaskControl) {
     this.unsubscribe=calls.onChange(call=>{ if(TERMINAL.has(call.state) || call.state!=='active') this.end(call.callId); });
     this.events=bridge.events.subscribe(event=>{
       if(event.type==='bridge.disconnected') for(const s of this.sessions.values()) this.invalidate(s,'codex_unavailable');
@@ -73,6 +74,7 @@ export class VoiceConversationController {
   async select(deviceId:string,callId:string,threadId:string) {
     const s=this.owner(deviceId,callId); if(s.phase==='submitting') throw new ConversationError('submission_in_progress');
     s.generation++; this.invalidate(s,'thread_changed'); const generation=s.generation;
+    s.controlId=undefined;s.queueNext=false;
     this.bridge.threads.get(threadId); await this.bridge.select(threadId);
     if(this.owner(deviceId,callId)!==s || s.generation!==generation) throw new ConversationError('thread_changed');
     s.threadId=threadId; s.submissionId=null; s.phase='ready';s.error=''; const t=this.selected(s);
@@ -146,8 +148,29 @@ export class VoiceConversationController {
       s.seen.add(u.utteranceId); if(s.seen.size>128) s.seen.delete(s.seen.values().next().value!);
       this.checkProposal(s);
       const intent=voiceIntent(u.text);
-      if(intent==='confirm') { if(s.proposal) await this.confirm(s.deviceId,s.callId,s.proposal.id); else this.add(s,'There is no pending instruction to confirm.'); }
-      else if(intent==='cancel' || intent==='reject') { if(s.proposal) this.invalidate(s,'user_cancelled'); else this.add(s,'There is no pending instruction. An accepted Codex task continues until it finishes or is managed on the computer.'); }
+      if(intent==='ambiguous')this.add(s,'Do you mean stop speaking, interrupt the current task, or hang up? Please say the full action.');
+      else if(intent==='approve')this.add(s,'Execution approval requires the on-screen review and fresh phone authentication. Voice cannot approve execution.');
+      else if(['interrupt','approvals','deny','queue','queued','cancelqueue'].includes(intent)){
+        if(!this.controls)this.add(s,'Task controls are disabled on the PC.');
+        else {
+          const c=this.controls.status(s.deviceId,s.threadId),turn=c.task;
+          if(intent==='approvals'){const a=c.approvals.find(a=>a.status==='pending');this.add(s,a?'Pending '+a.category+'. '+a.reason+'. '+a.risk+'. Open task controls for the exact action.':'No pending approval.');}
+          else if(intent==='queued'){const q=c.operations.find(o=>o.kind==='queue'&&o.state==='queued');this.add(s,q?'Queued: '+q.text:'No queued instruction.');}
+          else if(intent==='cancelqueue'){const q=c.operations.find(o=>o.kind==='queue'&&o.state==='queued');if(q){this.controls.cancel(s.deviceId,s.threadId,q.id);this.add(s,'Queued instruction cancelled.');}else this.add(s,'No queued instruction.');}
+          else if(intent==='queue'){s.queueNext=true;this.add(s,'Say the one follow-up instruction. I will ask before queueing it for automatic dispatch after successful completion.');}
+          else if(turn){
+            const a=c.approvals.find(a=>a.status==='pending');if(intent==='deny'&&!a){this.add(s,'No pending approval.');return;}
+            if(s.proposal)this.invalidate(s,'proposal_replaced');
+            const op=this.controls.propose(s.deviceId,s.threadId,turn.id,intent==='interrupt'?'interrupt':'deny','',a?.id??null);s.controlId=op.id;
+            this.add(s,intent==='interrupt'?'Interrupt this exact task? Say yes to request interruption. The call will stay open.':'Deny this pending action? Say yes to deny it.');
+          }else this.add(s,'No active task.');
+        }
+      }
+      else if(intent==='confirm') {
+        if(s.controlId&&this.controls){const id=s.controlId;s.controlId=undefined;await this.controls.confirm(s.deviceId,s.threadId,id);this.add(s,'Confirmed task-control request. Check task controls for the authoritative outcome.');}
+        else if(s.proposal) await this.confirm(s.deviceId,s.callId,s.proposal.id); else this.add(s,'There is no pending instruction to confirm.');
+      }
+      else if(intent==='cancel' || intent==='reject') { if(s.controlId&&this.controls){this.controls.cancel(s.deviceId,s.threadId,s.controlId);s.controlId=undefined;this.add(s,'Task-control proposal cancelled.');}else if(s.proposal) this.invalidate(s,'user_cancelled'); else this.add(s,'There is no pending instruction. An accepted Codex task continues until it finishes or is managed on the computer.');s.queueNext=false; }
       else if(intent==='hangup') this.calls.end(s.deviceId,s.callId,'user_ended');
       else if(intent==='stop') this.add(s,'Speech stopped.');
       else if(intent==='repeat') { const last=s.entries.at(-1); if(last) this.add(s,last.text,last.kind,last.spoken); else this.result(s); }
@@ -158,7 +181,10 @@ export class VoiceConversationController {
         this.add(s,turn?turn.status==='awaitingApproval'?'Codex is waiting for approval on the computer.':turn.status==='running' || turn.status==='starting'?'Codex is still working.':turn.status==='unknown'?'The task outcome is uncertain. Review the conversation on the computer.':spokenSummary(this.selected(s),turn):'No stored turn is available in this conversation.');
       } else if(intent==='help') this.add(s,'Ask for task status, the last result or the selected project. Say a programming request, review it, then say yes, send it. Say cancel to discard a proposal. Use Stop speaking during playback.');
       else if(s.phase==='submitting') this.add(s,'Submission is already in progress. I will not send it twice.');
-      else { if(s.proposal) this.invalidate(s,'proposal_replaced');this.propose(s,u.text); }
+      else {
+        if(s.queueNext&&this.controls){s.queueNext=false;const turn=this.bridge.turns.active(s.threadId);if(!turn)throw new ConversationError('thread_not_busy');const op=this.controls.propose(s.deviceId,s.threadId,turn.id,'queue',u.text);s.controlId=op.id;this.add(s,'Queue '+u.text+' after successful completion in '+op.cwd+'? Say yes to authorize one automatic follow-up, or cancel.');}
+        else {if(s.controlId&&this.controls){this.controls.cancel(s.deviceId,s.threadId,s.controlId);s.controlId=undefined;}if(s.proposal) this.invalidate(s,'proposal_replaced');this.propose(s,u.text);}
+      }
     } catch(error) {
       const existing=this.sessions.get(call.callId);
       if(existing) {existing.error=error instanceof ConversationError?error.code:'conversation_unavailable';this.add(existing,'The request could not be completed. Review the selected conversation and connection, then try again.');}

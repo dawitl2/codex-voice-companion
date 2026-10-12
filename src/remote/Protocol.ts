@@ -4,6 +4,7 @@ import { preferences, validFid, type NotificationPreferences } from '../notifica
 import { validateCallRequest, validateCallResponse, type CallRequest } from '../calls/CallProtocol.js';
 import { validateSpeechRequest, validateSpeechResponse, type SpeechRequest } from '../speech/SpeechProtocol.js';
 import { validateConversationRequest, validateConversationResponse, type ConversationRequest } from '../conversation/ConversationProtocol.js';
+import {validateControlRequest,validateControlResponse,type ControlRequest} from '../control/ControlProtocol.js';
 
 export const VERSION = 2;
 export const CLIENT_LIMIT = 8192;
@@ -20,6 +21,7 @@ export type ClientMessage = Envelope<'client.hello', { name: string }> |
   Envelope<CallRequest, Record<string, unknown>> |
   Envelope<SpeechRequest, Record<string, unknown>> |
   Envelope<ConversationRequest, Record<string, unknown>> |
+  Envelope<ControlRequest, Record<string, unknown>> |
   Envelope<ReadRequest, Record<string, never>>;
 export interface Envelope<T extends string = string, P = unknown> {
   version: 2; type: T; id: string; timestamp: string; payload: P; correlationId?: string;
@@ -84,6 +86,7 @@ function validateSnapshot(p: Record<string, unknown>): void {
 }
 function validateServer(type: string, payload: unknown): void {
   const p = object(payload);
+  if(type.startsWith('control.')){validateControlResponse(type,p);return;}
   if (type.startsWith('call.')) { validateCallResponse(type, p); return; }
   if (type.startsWith('speech.')) { validateSpeechResponse(type, p); return; }
   if (type.startsWith('conversation.')) { validateConversationResponse(type, p); return; }
@@ -122,7 +125,8 @@ export function parseClient(raw: string): ClientMessage {
     textField(row.id, 128); textField(row.type, 64); date(row.timestamp);
     if (row.correlationId !== undefined) textField(row.correlationId, 128);
     const p = object(row.payload);
-    if (String(row.type).startsWith('call.')) validateCallRequest(String(row.type), p);
+    if(String(row.type).startsWith('control.')) validateControlRequest(String(row.type),p);
+    else if (String(row.type).startsWith('call.')) validateCallRequest(String(row.type), p);
     else if (String(row.type).startsWith('speech.')) validateSpeechRequest(String(row.type), p);
     else if (String(row.type).startsWith('conversation.')) validateConversationRequest(String(row.type), p);
     else switch (row.type) {
