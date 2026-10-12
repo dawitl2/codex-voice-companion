@@ -1,10 +1,11 @@
-param([switch]$MobileData, [switch]$Ui)
+param([switch]$MobileData, [switch]$Ui, [switch]$RealSnapshot)
 $ErrorActionPreference = 'Stop'
 $deviceRoot = Split-Path $PSScriptRoot -Parent
 $tsExe = 'C:\Program Files\Tailscale\tailscale.exe'
 $adbExe = "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe"
 $previousRemote = $env:CODEX_VOICE_REMOTE_URL
 $previousJava = $env:JAVA_HOME
+$previousDeviceReal = $env:CODEX_VOICE_DEVICE_REAL
 $fixtureProcess = $null; $instrumentProcess = $null; $routeChanged = $false
 Push-Location -LiteralPath $deviceRoot
 try {
@@ -33,11 +34,12 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'App installation failed' }
   & $adbExe -s $serial install -r android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
   if ($LASTEXITCODE -ne 0) { throw 'Test installation failed' }
-  $deviceDirectory = Join-Path $deviceRoot '.runtime\device-verification'
+  $deviceDirectory = Join-Path $deviceRoot $(if ($RealSnapshot) { '.runtime\device-verification-real' } else { '.runtime\device-verification' })
   $fixturePath = Join-Path $deviceDirectory 'fixture.json'
   if (Test-Path -LiteralPath $fixturePath) { throw 'Previous owned fixture must be inspected' }
   $nodeExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
   $env:CODEX_VOICE_REMOTE_URL = "wss://$dnsName/remote"
+  $env:CODEX_VOICE_DEVICE_REAL = if ($RealSnapshot) { '1' } else { '0' }
   $fixtureProcess = Start-Process -FilePath $nodeExe -ArgumentList 'dist/scripts/device-harness.js' -WorkingDirectory $deviceRoot -WindowStyle Hidden -PassThru
   $fixtureDeadline = [DateTime]::UtcNow.AddSeconds(20)
   while (-not (Test-Path -LiteralPath $fixturePath)) {
@@ -53,10 +55,10 @@ try {
   & $tsExe serve --bg --https=443 http://127.0.0.1:8788
   if ($LASTEXITCODE -ne 0) { throw 'Scoped private fixture route failed' }
   $routeChanged = $true
-  $outputPath = Join-Path $deviceDirectory 'instrumentation.txt'
+  $outputPath = Join-Path $deviceDirectory $(if ($Ui) { 'monitor-ui.txt' } elseif ($RealSnapshot) { 'real-snapshot.txt' } else { 'private-route.txt' })
   $errorPath = Join-Path $deviceDirectory 'instrumentation-errors.txt'
   $mobileFlag = if ($MobileData) { 'true' } else { 'false' }
-  $testClass = if ($Ui) { 'com.codexvoice.app.PrivateMonitorUiTest' } else { 'com.codexvoice.app.PrivateRouteTest' }
+  $testClass = if ($RealSnapshot) { 'com.codexvoice.app.RealSnapshotTest' } elseif ($Ui) { 'com.codexvoice.app.PrivateMonitorUiTest' } else { 'com.codexvoice.app.PrivateRouteTest' }
   $instrumentProcess = Start-Process -FilePath $adbExe -ArgumentList @('-s',$serial,'shell','am','instrument','-w','-e','class',$testClass,'-e','privateRoute','true','-e','mobileData',$mobileFlag,'com.codexvoice.app.test/androidx.test.runner.AndroidJUnitRunner') -WindowStyle Hidden -PassThru -RedirectStandardOutput $outputPath -RedirectStandardError $errorPath
   $deviceDeadline = [DateTime]::UtcNow.AddMinutes(6)
   while (-not $instrumentProcess.HasExited) {
@@ -77,7 +79,7 @@ try {
 } finally {
   if ($instrumentProcess -and -not $instrumentProcess.HasExited) { Stop-Process -Id $instrumentProcess.Id -Force; & $adbExe -s $serial shell am force-stop com.codexvoice.app }
   if ($fixtureProcess -and -not $fixtureProcess.HasExited) {
-    [IO.File]::WriteAllText((Join-Path $deviceRoot '.runtime\device-verification\control.txt'), 'quit')
+    [IO.File]::WriteAllText((Join-Path $deviceDirectory 'control.txt'), 'quit')
     if (-not $fixtureProcess.WaitForExit(10000)) { Stop-Process -Id $fixtureProcess.Id -Force }
   }
   if ($routeChanged) { & $tsExe serve --bg --https=443 http://127.0.0.1:8787 }
@@ -93,5 +95,6 @@ try {
     }
   }
   $env:CODEX_VOICE_REMOTE_URL = $previousRemote; $env:JAVA_HOME = $previousJava
+  $env:CODEX_VOICE_DEVICE_REAL = $previousDeviceReal
   Pop-Location
 }
