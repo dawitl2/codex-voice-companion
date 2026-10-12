@@ -1,4 +1,4 @@
-param([switch]$MobileData, [switch]$Ui, [switch]$RealSnapshot, [switch]$Notifications, [switch]$ProcessAbsent, [switch]$Calls, [switch]$QuickAudio, [switch]$Speech)
+param([switch]$MobileData, [switch]$Ui, [switch]$RealSnapshot, [switch]$Notifications, [switch]$ProcessAbsent, [switch]$Calls, [switch]$QuickAudio, [switch]$Speech, [switch]$Conversation)
 $ErrorActionPreference = 'Stop'
 $deviceRoot = Split-Path $PSScriptRoot -Parent
 $tsExe = 'C:\Program Files\Tailscale\tailscale.exe'
@@ -9,17 +9,19 @@ $previousDeviceReal = $env:CODEX_VOICE_DEVICE_REAL
 $previousDevicePush = $env:CODEX_VOICE_DEVICE_PUSH
 $previousDeviceCall = $env:CODEX_VOICE_DEVICE_CALL
 $previousDeviceSpeech = $env:CODEX_VOICE_DEVICE_SPEECH
+$previousDeviceConversation=$env:CODEX_VOICE_DEVICE_CONVERSATION
 $previousFirebaseProject = $env:CODEX_VOICE_FIREBASE_PROJECT_ID
 $previousFirebaseCredentials = $env:GOOGLE_APPLICATION_CREDENTIALS
 $previousSparkConfirmation = $env:CODEX_VOICE_FIREBASE_SPARK_CONFIRMED
 $fixtureProcess = $null; $instrumentProcess = $null; $routeChanged = $false
 Push-Location -LiteralPath $deviceRoot
 try {
+  if($Conversation){if(-not $RealSnapshot -or -not $Notifications){throw '-Conversation requires -RealSnapshot -Notifications'};$Speech=$true}
   if ($Speech) {
-    if (-not $RealSnapshot -or $Notifications -or $MobileData -or $QuickAudio) { throw '-Speech requires -RealSnapshot and a focused foreground session' }
+    if (-not $RealSnapshot -or ($Notifications -and -not $Conversation) -or $MobileData -or $QuickAudio) { throw '-Speech requires -RealSnapshot and a focused foreground session' }
     $Calls = $true
   }
-  if ($Notifications -and ($Ui -or $RealSnapshot)) { throw 'Notification fixture is separate from UI/real-history fixtures' }
+  if ($Notifications -and ($Ui -or ($RealSnapshot -and -not $Conversation))) { throw 'Notification fixture is separate from UI/real-history fixtures' }
   if ($ProcessAbsent -and -not $Notifications) { throw '-ProcessAbsent requires -Notifications' }
   if ($Calls -and -not $Speech -and (-not $Notifications -or $ProcessAbsent)) { throw '-Calls requires -Notifications and is separate from process-absence tests' }
   if ($QuickAudio -and (-not $Calls -or $MobileData)) { throw '-QuickAudio requires -Calls and omits the mobile network matrix' }
@@ -73,6 +75,7 @@ try {
   $env:CODEX_VOICE_DEVICE_PUSH = if ($Notifications) { '1' } else { '0' }
   $env:CODEX_VOICE_DEVICE_CALL = if ($Calls) { '1' } else { '0' }
   $env:CODEX_VOICE_DEVICE_SPEECH = if ($Speech) { '1' } else { '0' }
+  $env:CODEX_VOICE_DEVICE_CONVERSATION=if($Conversation){'1'}else{'0'}
   $fixtureProcess = Start-Process -FilePath $nodeExe -ArgumentList 'dist/scripts/device-harness.js' -WorkingDirectory $deviceRoot -WindowStyle Hidden -PassThru
   $fixtureDeadline = [DateTime]::UtcNow.AddSeconds(20)
   while (-not (Test-Path -LiteralPath $fixturePath)) {
@@ -82,16 +85,25 @@ try {
   $metadata = Get-Content -LiteralPath $fixturePath -Raw | ConvertFrom-Json
   $metadata | Add-Member -NotePropertyName wifiInitiallyEnabled -NotePropertyValue ($wifiInitial -eq '1')
   $metadata | Add-Member -NotePropertyName dataInitiallyEnabled -NotePropertyValue ($dataInitial -eq '1')
+  if($Conversation) {
+    $voiceClockBefore=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    $voicePhoneClock=(& $adbExe -s $serial shell date '+%s%N').Trim()
+    $voiceClockAfter=[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+    if($voicePhoneClock -notmatch '^\d{19}$'){throw 'Cannot measure phone/PC clock offset for this voice check'}
+    $voiceClockOffset=[long]$voicePhoneClock.Substring(0,13)-[long](($voiceClockBefore+$voiceClockAfter)/2)
+    $metadata | Add-Member -NotePropertyName phoneMinusPcMs -NotePropertyValue $voiceClockOffset
+    $metadata | Add-Member -NotePropertyName clockUncertaintyMs -NotePropertyValue ([long](($voiceClockAfter-$voiceClockBefore)/2))
+  }
   [IO.File]::WriteAllText($fixturePath, ($metadata | ConvertTo-Json -Compress))
   & $adbExe -s $serial push $fixturePath /data/local/tmp/codex-voice-fixture.json | Out-Null
   & $adbExe -s $serial shell chmod 600 /data/local/tmp/codex-voice-fixture.json
   & $tsExe serve --bg --https=443 http://127.0.0.1:8788
   if ($LASTEXITCODE -ne 0) { throw 'Scoped private fixture route failed' }
   $routeChanged = $true
-  $outputPath = Join-Path $deviceDirectory $(if ($Speech) { 'speech-session.txt' } elseif ($Calls) { 'audio-session.txt' } elseif ($Notifications) { 'firebase-delivery.txt' } elseif ($Ui) { 'monitor-ui.txt' } elseif ($RealSnapshot) { 'real-snapshot.txt' } else { 'private-route.txt' })
+  $outputPath = Join-Path $deviceDirectory $(if($Conversation){'conversation-session.txt'}elseif ($Speech) { 'speech-session.txt' } elseif ($Calls) { 'audio-session.txt' } elseif ($Notifications) { 'firebase-delivery.txt' } elseif ($Ui) { 'monitor-ui.txt' } elseif ($RealSnapshot) { 'real-snapshot.txt' } else { 'private-route.txt' })
   $errorPath = Join-Path $deviceDirectory 'instrumentation-errors.txt'
   $mobileFlag = if ($MobileData) { 'true' } else { 'false' }
-  $testClass = if ($Speech) { 'com.codexvoice.app.SpeechCallTest' } elseif ($Calls) { 'com.codexvoice.app.AudioSessionTest' } elseif ($ProcessAbsent) { 'com.codexvoice.app.FirebaseProcessTest' } elseif ($Notifications) { 'com.codexvoice.app.FirebaseDeliveryTest' } elseif ($RealSnapshot) { 'com.codexvoice.app.RealSnapshotTest' } elseif ($Ui) { 'com.codexvoice.app.PrivateMonitorUiTest' } else { 'com.codexvoice.app.PrivateRouteTest' }
+  $testClass = if($Conversation){'com.codexvoice.app.ConversationCallTest#realSpeechConfirmationCodexReplyAndCleanup'}elseif ($Speech) { 'com.codexvoice.app.SpeechCallTest' } elseif ($Calls) { 'com.codexvoice.app.AudioSessionTest' } elseif ($ProcessAbsent) { 'com.codexvoice.app.FirebaseProcessTest' } elseif ($Notifications) { 'com.codexvoice.app.FirebaseDeliveryTest' } elseif ($RealSnapshot) { 'com.codexvoice.app.RealSnapshotTest' } elseif ($Ui) { 'com.codexvoice.app.PrivateMonitorUiTest' } else { 'com.codexvoice.app.PrivateRouteTest' }
   if ($Ui -or $Notifications -or $Speech) {
     # Wake for UI testing. Android enforces any required secure unlock; no PIN is supplied.
     & $adbExe -s $serial shell input keyevent KEYCODE_WAKEUP
@@ -123,7 +135,11 @@ try {
   $instrumentOutput = Get-Content -LiteralPath $outputPath -Raw
   Write-Output $instrumentOutput
   if ($instrumentProcess.ExitCode -ne 0 -or $instrumentOutput -notmatch 'OK \(1 test\)' -or $instrumentOutput -match 'FAILURES|INSTRUMENTATION_FAILED') { throw 'Physical private-route test failed' }
-  if ($Speech) {
+  if($Conversation) {
+    $voiceProof=& $adbExe -s $serial shell run-as com.codexvoice.app cat no_backup/device-verification/conversation-result.json 2>$null
+    if(-not $voiceProof -or ($voiceProof | ConvertFrom-Json).runId -ne $audioRunId){throw 'Conversation proof does not match this execution'}
+    $voiceProof | Set-Content -LiteralPath (Join-Path $deviceDirectory 'conversation-result.json')
+  } elseif ($Speech) {
     $speechProof = & $adbExe -s $serial shell run-as com.codexvoice.app cat no_backup/device-verification/speech-result.json 2>$null
     if (-not $speechProof -or ($speechProof | ConvertFrom-Json).runId -ne $audioRunId) { throw 'Speech proof does not match this execution' }
     $speechProof | Set-Content -LiteralPath (Join-Path $deviceDirectory 'speech-result.json')
@@ -186,6 +202,7 @@ try {
   $env:CODEX_VOICE_DEVICE_PUSH = $previousDevicePush
   $env:CODEX_VOICE_DEVICE_CALL = $previousDeviceCall
   $env:CODEX_VOICE_DEVICE_SPEECH = $previousDeviceSpeech
+  $env:CODEX_VOICE_DEVICE_CONVERSATION=$previousDeviceConversation
   $env:CODEX_VOICE_FIREBASE_PROJECT_ID = $previousFirebaseProject
   $env:GOOGLE_APPLICATION_CREDENTIALS = $previousFirebaseCredentials
   $env:CODEX_VOICE_FIREBASE_SPARK_CONFIRMED = $previousSparkConfirmation

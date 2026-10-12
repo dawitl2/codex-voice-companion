@@ -60,7 +60,7 @@ class SpeechCallTest {
             compose.onNode(hasScrollAction()).performScrollToNode(hasContentDescription("Offer audio calls")); compose.onNodeWithContentDescription("Offer audio calls").performClick()
             until("Call opt-in synchronized") { text("Call invitations synchronized") }
             File(directory,"control.txt").writeText("offer")
-            until("Existing stored turn review offered") { status()?.getAsJsonArray("calls")?.lastOrNull()?.asJsonObject?.get("kind")?.asString=="review" }
+            until("Existing stored turn review offered") { status()?.getAsJsonArray("calls")?.lastOrNull()?.asJsonObject?.let{it["kind"].asString=="review" && it["state"].asString=="offered"}==true }
             compose.onNode(hasText("Home") and hasClickAction()).performClick()
             until("Open current audio session") { text("Open audio session") }; compose.onNodeWithText("Open audio session").performScrollTo().performClick()
             until("Explicit review invitation") { CallRuntime.state.value.phase==LivePhase.OFFERED }
