@@ -13,6 +13,12 @@ export class SpeechSessionCoordinator {
   private readonly unsubscribe: () => void;
   readonly initialization: Promise<void>;
   onTranscription(listener: (call: CallSession, utterance: FinalTranscription) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  diagnostics() {
+    return { engine: this.engineState, error: this.engineError, sessions: this.sessions.size,
+      recognizing: [...this.sessions.values()].filter(s => s.abort !== null).length,
+      pending: [...this.sessions.values()].filter(s => s.pending !== null).length,
+      listening: [...this.sessions.values()].filter(s => s.enabled && !s.speaking).length };
+  }
   constructor(private readonly calls: CallSessionManager, private readonly bridge: Bridge, private readonly engine: SpeechRecognitionEngine) {
     this.initialization = engine.prepare().then(() => { this.engineState = 'ready'; }, error => { this.engineState = 'unavailable'; this.engineError = error instanceof SpeechError ? error.code : 'asr_unavailable'; });
     this.unsubscribe = calls.onChange(call => { const session = this.sessions.get(call.callId); if (!session) return; if (TERMINAL.has(call.state) || call.state !== 'active') this.remove(session); else if (call.muted) this.reset(session); });

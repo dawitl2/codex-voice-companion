@@ -11,6 +11,8 @@ async function main(): Promise<void> {
   try {
     await bridge.connect();
     const effective = object(object(await bridge.client.request('config/read', { includeLayers: false, cwd: directory })).config);
+    const models = object(await bridge.client.request('model/list', { limit: 100 }));
+    if (!Array.isArray(models.data) || !models.data.some(raw => { const model=object(raw); return model.isDefault === true && model.hidden !== true; })) throw new Error('No available default Codex model; check the authenticated account');
     console.log(JSON.stringify({ authentication: bridge.authentication, plan: bridge.plan, version: transport.version, notifyEmpty: Array.isArray(effective.notify) && effective.notify.length === 0, enabledMcpServers: effective.mcp_servers ? Object.values(object(effective.mcp_servers)).filter(x => object(x).enabled !== false).length : 0, enabledPlugins: effective.plugins ? Object.values(object(effective.plugins)).filter(x => object(x).enabled !== false).length : 0 }, null, 2));
     if (resumeTest) {
       const thread = bridge.threads.list().find(t => t.label === 'Step 2 controlled connection test'); if (!thread) throw new Error('No controlled-test managed thread exists');

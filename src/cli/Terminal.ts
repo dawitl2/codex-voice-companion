@@ -7,9 +7,11 @@ import type { DeviceRegistry } from '../remote/DeviceRegistry.js';
 import type { NotificationDispatcher } from '../notifications/NotificationDispatcher.js';
 import type { CallSessionManager } from '../calls/CallSessionManager.js';
 import type { MediaTransportServer } from '../calls/MediaTransportServer.js';
+import type { SpeechSessionCoordinator } from '../speech/SpeechSessionCoordinator.js';
 
 export const HELP = `Codex Voice Bridge — local terminal commands
 status                       Connection, auth, selected thread and active turn
+diagnostics                  Privacy-safe local subsystem states and counts
 threads                      Managed threads in this mode
 new "C:\\path to project" label  Create and select a thread (quoted path required)
 select <thread-id>            Select/resume an original managed conversation
@@ -38,7 +40,7 @@ exit                         Cancel pending approvals and shut down
 Mock fixtures: send [mock:fail], [mock:approval], [mock:wait], [mock:crash], [mock:duplicate]
 This manages companion conversations; it does not attach to live VS Code sessions.`;
 
-export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices?: DeviceRegistry, notifications?: NotificationDispatcher, calls?: CallSessionManager, media?: MediaTransportServer): Promise<void> {
+export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices?: DeviceRegistry, notifications?: NotificationDispatcher, calls?: CallSessionManager, media?: MediaTransportServer, speech?: SpeechSessionCoordinator): Promise<void> {
   console.log(`Codex Voice Bridge 0.1.0 | ${bridge.mode.toUpperCase()} | Node ${process.versions.node}`);
   console.log(HELP);
   let watching = true;
@@ -101,6 +103,10 @@ export async function runTerminal(bridge: Bridge, remote?: RemoteServer, devices
         console.log(`Push provider: ${notifications.diagnostic}; configured=${notifications.configured}`);
         for (const device of devices.list()) console.log(JSON.stringify({ deviceId: device.id, ...devices.pushState(device.id), deliveries: notifications.store.diagnostics(device.id) }));
         break;
+      case 'diagnostics': console.log(JSON.stringify({ mode: bridge.mode, connected: bridge.available,
+        notifications: notifications?.configured ?? false, mediaSessions: media?.connected ?? 0,
+        pendingApprovals: bridge.approvals.list().filter(a => a.status === 'pending').length,
+        speech: speech?.diagnostics() ?? { engine: 'disabled' } })); break;
       case 'call-status': if (!calls || !media) throw new Error('Start with --remote --calls'); console.log(JSON.stringify({ calls: calls.diagnostics(), media: media.diagnostics() })); break;
       case 'review-call': {
         if (!calls) throw new Error('Start with --remote --calls');

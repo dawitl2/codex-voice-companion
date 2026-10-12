@@ -64,7 +64,7 @@ async function main(): Promise<void> {
         { registry: devices, dispatcher: notifications, projectId: process.env.CODEX_VOICE_FIREBASE_PROJECT_ID }, calls && media ? { manager: calls, media, ...(speech ? { speech } : {}), ...(conversation ? { conversation } : {}) } : undefined,controls);
       await remote.start(); console.log(`Remote monitor: 127.0.0.1:${remote.address} through ${remote.endpoint.href}`);
     }
-    await runTerminal(bridge, remote, devices, notifications, calls, media);
+    await runTerminal(bridge, remote, devices, notifications, calls, media, speech);
   } finally { controls?.close(); conversation?.close(); speech?.close(); coordinator?.close(); await remote?.close(); await media?.close(); calls?.close(); await notifications?.close(); await bridge.close(); }
 }
 main().catch(error => { console.error(errorText(error)); process.exitCode = 1; });
