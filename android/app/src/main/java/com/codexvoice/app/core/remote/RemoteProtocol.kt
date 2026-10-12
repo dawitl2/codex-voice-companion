@@ -30,14 +30,14 @@ object RemoteProtocol {
         return uri.toASCIIString()
     }
     fun message(type: String, payload: Map<String, Any> = emptyMap(), id: String = UUID.randomUUID().toString()): String =
-        gson.toJson(mapOf("version" to 1, "type" to type, "id" to id, "timestamp" to Instant.now().toString(), "payload" to payload))
+        gson.toJson(mapOf("version" to 2, "type" to type, "id" to id, "timestamp" to Instant.now().toString(), "payload" to payload))
     fun parse(raw: String): ServerMessage {
         if (raw.toByteArray(Charsets.UTF_8).size > 262144) throw RemoteProtocolException("message_too_large")
         try {
             val reader = JsonReader(StringReader(raw)).apply { strictness = Strictness.STRICT }
             val root = JsonParser.parseReader(reader).asJsonObject
             require(reader.peek() == JsonToken.END_DOCUMENT)
-            if (number(root, "version") != 1L) throw RemoteProtocolException("incompatible_version")
+            if (number(root, "version") != 2L) throw RemoteProtocolException("incompatible_version")
             keys(root, setOf("version", "type", "id", "timestamp", "payload", "correlationId"), setOf("correlationId"))
             val type = string(root, "type", 64); val id = string(root, "id", 128); date(root, "timestamp")
             val correlation = nullableString(root, "correlationId", 128)
@@ -49,6 +49,24 @@ object RemoteProtocol {
                     "auth.success" -> { keys(p, setOf("deviceId", "bridgeName")); require(string(p, "deviceId", 36).matches(Regex("[a-f0-9-]{36}"))); string(p, "bridgeName", 80) }
                     "auth.failed", "pair.failed", "protocol.error", "request.error" -> { keys(p, setOf("code")); string(p, "code", 64) }
                     "heartbeat" -> keys(p, emptySet())
+                    "notification.status.response" -> {
+                        keys(p, setOf("registered", "configured", "preferences", "diagnostic")); boolean(p, "registered"); boolean(p, "configured"); string(p, "diagnostic", 64)
+                        val preferences = p.getAsJsonObject("preferences"); keys(preferences, setOf("enabled", "completed", "failed", "interrupted", "approval"))
+                        preferences.keySet().forEach { boolean(preferences, it) }
+                    }
+                    "notification.event.response" -> {
+                        keys(p, setOf("eventId", "threadId", "turnId", "kind", "mode", "occurredAt", "expiresAt", "approvalStatus", "expired", "result"))
+                        require(string(p, "eventId", 64).matches(Regex("[a-f0-9]{64}"))); string(p, "threadId", 128); string(p, "turnId", 128)
+                        require(string(p, "kind", 16) in setOf("completed", "failed", "interrupted", "approval")); require(string(p, "mode", 4) in setOf("mock", "real"))
+                        date(p, "occurredAt"); date(p, "expiresAt"); boolean(p, "expired")
+                        if (!p["result"].isJsonNull) require(p["result"].isJsonPrimitive && p["result"].asJsonPrimitive.isString && p["result"].asString.length <= 16000)
+                        val status = nullableString(p, "approvalStatus", 16); require(status == null || status in setOf("pending", "accepted", "declined", "expired", "unavailable", "resolved"))
+                    }
+                    "notification.receipt.response" -> {
+                        keys(p, setOf("eventId", "stage")); require(string(p, "eventId", 64).matches(Regex("[a-f0-9]{64}")))
+                        require(string(p, "stage", 16) in setOf("received", "posted", "opened", "dismissed"))
+                    }
+                    "notification.error" -> { keys(p, setOf("code")); string(p, "code", 64) }
                     else -> throw RemoteProtocolException("unknown_message")
                 }; null
             }

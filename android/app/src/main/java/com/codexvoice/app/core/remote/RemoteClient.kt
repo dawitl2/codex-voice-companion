@@ -14,6 +14,8 @@ fun reconnectDelay(attempt: Int, jitter: Double): Long? = if (attempt !in 0..5) 
 class RemoteClient(private val scope: CoroutineScope, private val sockets: SocketFactory, private val store: CredentialStore,
     private val now: () -> Long = System::currentTimeMillis, private val jitter: () -> Double = { Random.nextDouble() }) {
     private val mutableState = MutableStateFlow(ClientState()); val state = mutableState.asStateFlow()
+    private val mutableNotifications = MutableSharedFlow<ServerMessage>(extraBufferCapacity = 32); val notifications = mutableNotifications.asSharedFlow()
+    private val notificationPending = mutableMapOf<String, String>()
     private val queue = Channel<() -> Unit>(64)
     @Volatile private var closed = false
     private var credential: Credential? = null; private var socket: RemoteSocket? = null; private var generation = 0
@@ -68,6 +70,16 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         catch (_: Exception) { update(RemoteStatus.STORAGE_ERROR, "Could not remove protected pairing data.") }
     }
     fun refresh() = post { if (authenticated) requestSnapshot() }
+    fun notification(type: String, payload: Map<String, Any> = emptyMap()) = post {
+        if (!authenticated || notificationPending.size >= 32) return@post
+        val expected = when (type) {
+            "notification.register", "notification.preferences.update", "notification.status.request" -> "notification.status.response"
+            "notification.event.request" -> "notification.event.response"
+            "notification.receipt" -> "notification.receipt.response"
+            else -> return@post
+        }
+        try { notificationPending[send(type, payload)] = expected } catch (_: Exception) { fail("unreachable") }
+    }
     fun close() { closed = true; desired = false; generation++; socket?.close(); timeout?.cancel(); retry?.cancel(); heartbeat?.cancel(); queue.close() }
     private fun update(status: RemoteStatus, problem: String = "") {
         mutableState.value = mutableState.value.copy(status = status, problem = problem, paired = credential != null, enabled = credential?.enabled == true)
@@ -75,6 +87,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     private fun stopSocket() {
         generation++; socket?.close(); socket = null; authenticated = false; timeout?.cancel(); retry?.cancel(); heartbeat?.cancel()
         helloId = null; authId = null; snapshotId = null; sessionEpoch = null
+        notificationPending.clear()
     }
     private fun open() {
         stopSocket(); if (!desired || !foreground) return
@@ -111,6 +124,12 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     private fun receive(raw: String) {
         try {
             val m = RemoteProtocol.parse(raw)
+            if (m.type.startsWith("notification.")) {
+                check(authenticated)
+                val expected = notificationPending.remove(m.correlationId) ?: error("Uncorrelated notification response")
+                check(m.type == expected || m.type == "notification.error")
+                mutableNotifications.tryEmit(m); return
+            }
             when (m.type) {
                 "server.hello" -> {
                     check(!authenticated && helloId != null && m.correlationId == helloId && authId == null)

@@ -69,7 +69,7 @@ class RemoteClientTest {
         }
     }
     @Test fun rejectsUnknownVersionsWithCompatibilityError() {
-        val raw = RemoteProtocol.message("heartbeat").replace("\"version\":1", "\"version\":2")
+        val raw = RemoteProtocol.message("heartbeat").replace("\"version\":2", "\"version\":1")
         try { RemoteProtocol.parse(raw); fail() } catch (e: RemoteProtocolException) { assertEquals("incompatible_version", e.reason) }
     }
     @Test fun backoffIsBoundedAndJittered() {
