@@ -41,6 +41,11 @@ class DashboardViewModel(
     val liveCallState = liveCalls?.state ?: MutableStateFlow(LiveCallState()).asStateFlow()
     val callSettingsStatus = liveCalls?.status ?: MutableStateFlow("Call invitations disabled").asStateFlow()
     val speechState = SpeechRuntime.state
+    val conversationState=com.codexvoice.app.core.conversation.ConversationRuntime.state
+    fun confirmVoice(id:String){speech?.confirmProposal(id)}
+    fun cancelVoice(id:String){speech?.cancelProposal(id)}
+    fun correctVoice(id:String,text:String){speech?.correctProposal(id,text)}
+    fun selectVoiceThread(id:String){speech?.selectThread(id)}
     fun repeatSummary() { speech?.repeat() }
     fun stopSpeaking() { speech?.stop() }
     fun finishSpeaking() { speech?.finishSpeaking() }

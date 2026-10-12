@@ -1,4 +1,4 @@
-param([ValidateSet('mock','real')][string]$Mode = 'mock', [switch]$SparkConfirmed, [switch]$Calls, [switch]$Speech,
+param([ValidateSet('mock','real')][string]$Mode = 'mock', [switch]$SparkConfirmed, [switch]$Calls, [switch]$Speech, [switch]$Conversation, [switch]$WorkspaceWrite,
     [string]$CredentialPath = "$env:USERPROFILE\.codex-voice\firebase\service-account.json")
 $ErrorActionPreference = 'Stop'
 $notificationRoot = Split-Path $PSScriptRoot -Parent
@@ -26,8 +26,10 @@ try {
     & .\scripts\run.ps1 build
     if ($LASTEXITCODE -ne 0) { throw 'Bridge build failed' }
     $bridgeArguments = @("--$Mode", '--remote', '--notifications')
-    if ($Calls -or $Speech) { $bridgeArguments += '--calls' }
-    if ($Speech) { $bridgeArguments += '--speech' }
+    if ($Calls -or $Speech -or $Conversation) { $bridgeArguments += '--calls' }
+    if ($Speech -or $Conversation) { $bridgeArguments += '--speech' }
+    if ($Conversation) { $bridgeArguments += '--conversation' }
+    if ($WorkspaceWrite) { $bridgeArguments += '--workspace-write' }
     & .\scripts\run.ps1 start @bridgeArguments
     if ($LASTEXITCODE -ne 0) { throw 'Notification bridge startup failed; inspect the fixed diagnostic above' }
 } finally {

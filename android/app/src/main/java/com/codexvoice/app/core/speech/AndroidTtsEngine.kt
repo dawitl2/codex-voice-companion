@@ -42,7 +42,7 @@ class AndroidTtsEngine(context:Context, private val finished:(String)->Unit) {
             check(engine.setVoice(voice)==TextToSpeech.SUCCESS && engine.voice?.isNetworkConnectionRequired==false)
             engine.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             engine.setOnUtteranceProgressListener(object:UtteranceProgressListener() {
-                override fun onStart(id:String?) { if (!closed && id==current) SpeechRuntime.update { it.copy(speaking=true, playback="started", speechStartMs=SystemClock.elapsedRealtime()-requestedAt) } }
+                override fun onStart(id:String?) { if (!closed && id==current) SpeechRuntime.update { it.copy(speaking=true, playback="started", speechStartMs=SystemClock.elapsedRealtime()-requestedAt,speechStartedAtMs=System.currentTimeMillis()) } }
                 override fun onDone(id:String?) { if (!closed && id==current) complete("completed") }
                 @Deprecated("Use the coded callback") override fun onError(id:String?) { if (!closed && id==current) complete("error") }
                 override fun onError(id:String?, code:Int) { if (!closed && id==current) complete("error") }

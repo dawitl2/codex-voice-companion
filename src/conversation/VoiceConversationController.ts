@@ -25,9 +25,9 @@ export class VoiceConversationController {
     this.events=bridge.events.subscribe(event=>{
       if(event.type==='bridge.disconnected') for(const s of this.sessions.values()) this.invalidate(s,'codex_unavailable');
       // Turn events can be emitted before the originating store mutation finishes.
-      setImmediate(()=>{ if(!this.closed) for(const s of this.sessions.values()) this.safeRefresh(s); });
+      setImmediate(()=>{ if(!this.closed) { this.reconcileLedger();for(const s of this.sessions.values()) this.safeRefresh(s); } });
     });
-    this.timer=setInterval(()=>{ for(const s of this.sessions.values()) { this.checkProposal(s); this.safeRefresh(s); } },500); this.timer.unref();
+    this.timer=setInterval(()=>{ this.reconcileLedger();for(const s of this.sessions.values()) { this.checkProposal(s); this.safeRefresh(s); } },500); this.timer.unref();
   }
   connection(deviceId:string,delta:1|-1) {
     const count=Math.max(0,(this.connected.get(deviceId)??0)+delta); if(count) this.connected.set(deviceId,count); else this.connected.delete(deviceId);
@@ -175,11 +175,21 @@ export class VoiceConversationController {
     if(row.state!==state || firstOutputAt!==row.firstOutputAt) this.ledger.update(row.id,{state,firstOutputAt,finishedAt:turn.finishedAt??null});
     if(!s.proposal && (row.state!==state || ['accepted','running','awaitingApproval','unknown'].includes(s.phase))) s.phase=state;
     if(terminal(turn.status) && !s.terminalSpoken.has(turn.id)) {
-      s.terminalSpoken.add(turn.id); const thread=this.bridge.threads.get(turn.threadId);
+      s.terminalSpoken.add(turn.id); if(!s.proposal)s.phase=state; const thread=this.bridge.threads.get(turn.threadId);
       this.add(s,sanitize(turn.finalResponse || 'No final response was provided.',16000),'codex',spokenSummary(thread,turn));
     }
   }
   private safeRefresh(s:Session) {try {this.refresh(s);} catch {s.error='submission_storage_unavailable';}}
+  private reconcileLedger() {
+    try {
+      for(const row of this.ledger.list()) {
+        if(!row.turnId) continue; const turn=this.bridge.turns.get(row.threadId,row.turnId);if(!turn)continue;
+        const state=turn.status==='starting'?'running':turn.status as SubmissionState;
+        const firstOutputAt=row.firstOutputAt ?? (this.bridge.store.state.events.some(e=>e.threadId===row.threadId && e.turnId===row.turnId && e.type==='turn.progress')?new Date(this.now()).toISOString():null);
+        if(row.state!==state || firstOutputAt!==row.firstOutputAt) this.ledger.update(row.id,{state,firstOutputAt,finishedAt:turn.finishedAt??null});
+      }
+    } catch { for(const s of this.sessions.values())s.error='submission_storage_unavailable'; }
+  }
   private end(callId:string) {const s=this.sessions.get(callId);if(s){s.generation++;s.proposal=null;s.entries=[];s.seen.clear();this.sessions.delete(callId);}}
   close(){this.closed=true;clearInterval(this.timer);this.unsubscribe();this.events();for(const id of this.sessions.keys())this.end(id);this.connected.clear();}
 }

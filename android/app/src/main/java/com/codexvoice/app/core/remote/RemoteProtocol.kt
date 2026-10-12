@@ -9,6 +9,7 @@ import java.time.Instant
 import java.util.UUID
 import com.codexvoice.app.core.calls.CallWire
 import com.codexvoice.app.core.speech.SpeechWire
+import com.codexvoice.app.core.conversation.ConversationWire
 
 data class RemoteThread(val id: String, val label: String, val project: String, val status: String)
 data class RemoteTurn(val id: String, val threadId: String, val status: String, val startedAt: Long, val finishedAt: Long?)
@@ -47,6 +48,7 @@ object RemoteProtocol {
             val snapshot = if (type in snapshotTypes) snapshot(p) else {
                 if (type.startsWith("call.")) CallWire.validateResponse(type, p)
                 else if (type.startsWith("speech.")) SpeechWire.validate(type, p)
+                else if (type.startsWith("conversation.")) ConversationWire.validate(type, p)
                 else when (type) {
                     "server.hello" -> { keys(p, setOf("bridgeName")); string(p, "bridgeName", 80) }
                     "pair.success" -> { keys(p, setOf("deviceId", "token", "bridgeName")); credential(p); string(p, "bridgeName", 80) }

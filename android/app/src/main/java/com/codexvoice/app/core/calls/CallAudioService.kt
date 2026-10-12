@@ -12,6 +12,7 @@ import com.codexvoice.app.R
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 import com.codexvoice.app.core.speech.*
+import com.codexvoice.app.core.conversation.ConversationRuntime
 import com.codexvoice.app.core.model.UserPreferences
 import com.codexvoice.app.core.data.DataStorePreferencesRepository
 import com.codexvoice.app.preferencesStore
@@ -27,6 +28,7 @@ class CallAudioService : Service() {
     private var engine: NativeAudioEngine? = null
     private var synthesizer: AndroidTtsEngine? = null
     private var speechPreferences = UserPreferences()
+    @Volatile private var speechGeneration=0L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var recovery: Job? = null
     private var wake: PowerManager.WakeLock? = null
@@ -44,22 +46,28 @@ class CallAudioService : Service() {
                     wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "CodexVoice:ActiveAudio").apply { acquire(1800000) }
                     CallRuntime.update { it.copy(phase = LivePhase.CONNECTING, offer = grant.call, serviceRunning = true, capturing = false, playing = false) }
                     if (SpeechRuntime.state.value.callId != grant.call.callId) SpeechRuntime.begin(grant.call.callId)
-                    synthesizer = AndroidTtsEngine(applicationContext) { outcome -> scope.launch {
+                    synthesizer = AndroidTtsEngine(applicationContext) { outcome ->
+                        val finishedGeneration=speechGeneration
+                        scope.launch {
                         delay(150)
-                        engine?.pauseForSpeech(false)
-                        SpeechRuntime.update { it.copy(speaking=false,playback=outcome) }
+                        if(finishedGeneration==speechGeneration && !SpeechRuntime.state.value.speaking) {
+                            engine?.pauseForSpeech(false)
+                            SpeechRuntime.update { it.copy(speaking=false,playback=outcome) }
+                        }
                     } }.also { it.configure(speechPreferences) }
                     engine = NativeAudioEngine(applicationContext, grant) { reason, recoverable -> scope.launch { ended(reason, recoverable) } }
                     engine!!.connect()
                 } catch (_: Exception) { ended("Foreground audio session could not start", false) }
             }
-            END -> { recovery?.cancel(); synthesizer?.close(); synthesizer=null; SpeechRuntime.clear(); engine?.end() ?: ended("Ended by you", false) }
+            END -> { recovery?.cancel(); synthesizer?.close(); synthesizer=null; SpeechRuntime.clear(); ConversationRuntime.clear(); engine?.end() ?: ended("Ended by you", false) }
             MUTE -> engine?.mute(!CallRuntime.state.value.muted)
             SPEAKER -> engine?.speaker(!CallRuntime.state.value.speaker)
             TONE -> { synthesizer?.stop(); engine?.tone() }
             STOP_SPEECH -> synthesizer?.stop()
             SPEAK -> if (CallRuntime.state.value.phase==LivePhase.ACTIVE && SpeechRuntime.state.value.callId==CallRuntime.state.value.offer?.callId && speechPreferences.spokenSummaries) scope.launch {
-                if (engine?.pauseForSpeech(true)==true && synthesizer?.speak(SpeechRuntime.state.value.summary)!=true) {
+                speechGeneration++
+                val output=SpeechRuntime.state.value.outputText.ifBlank { SpeechRuntime.state.value.summary }
+                if (engine?.pauseForSpeech(true)==true && synthesizer?.speak(output)!=true) {
                     engine?.pauseForSpeech(false)
                     SpeechRuntime.update { it.copy(speaking=false,playback="error",error="offline_voice_unavailable") }
                 }
@@ -80,6 +88,7 @@ class CallAudioService : Service() {
     }
     private fun ended(reason: String, recoverable: Boolean) {
         synthesizer?.close(); synthesizer=null; SpeechRuntime.clear()
+        ConversationRuntime.clear()
         engine = null; wake?.let { if (it.isHeld) it.release() }; wake = null
         CallRuntime.update { it.copy(phase = if (recoverable) LivePhase.RECONNECTING else if (reason.startsWith("Ended") || reason.startsWith("Call ended")) LivePhase.ENDED else LivePhase.FAILED,
             capturing = false, playing = false, inputLevel = 0f, outputLevel = 0f, problem = reason, endedAt = if (recoverable) 0 else SystemClock.elapsedRealtime()) }
@@ -89,6 +98,7 @@ class CallAudioService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) { engine?.end(); super.onTaskRemoved(rootIntent) }
     override fun onDestroy() {
         synthesizer?.close(); synthesizer=null; SpeechRuntime.clear()
+        ConversationRuntime.clear()
         recovery?.cancel(); engine?.destroy(); engine = null
         wake?.let { if (it.isHeld) it.release() }; wake = null
         CallRuntime.update { it.copy(serviceRunning = false, capturing = false, playing = false,

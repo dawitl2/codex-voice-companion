@@ -70,7 +70,7 @@ export class Bridge {
     }
     else { this.threads.get(id); this.threads.activeId = id; }
   }
-  async send(id: string, text: string, beforeDispatch?: () => void): Promise<string> { await this.verifyAccount(); await this.verifyConfiguration(this.threads.get(id).cwd); beforeDispatch?.(); return (await this.turns.start(id, text)).id; }
+  async send(id: string, text: string, beforeDispatch?: () => void): Promise<string> { await this.verifyAccount(); await this.verifyConfiguration(this.threads.get(id).cwd); return (await this.turns.start(id, text, beforeDispatch)).id; }
   async verifyConfiguration(cwd?: string): Promise<void> {
     if (this.mode === 'mock') return;
     const config = object(object(await this.client.request('config/read', { includeLayers: false, ...(cwd ? { cwd } : {}) })).config);

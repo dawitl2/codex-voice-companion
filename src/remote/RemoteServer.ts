@@ -13,9 +13,10 @@ import { CallError, type CallSessionManager } from '../calls/CallSessionManager.
 import type { MediaTransportServer } from '../calls/MediaTransportServer.js';
 import { PCM } from '../calls/AudioProtocol.js';
 import type { SpeechSessionCoordinator } from '../speech/SpeechSessionCoordinator.js';
+import { ConversationError, type VoiceConversationController } from '../conversation/VoiceConversationController.js';
 
 export interface NotificationAccess { registry: DeviceRegistry; dispatcher: NotificationDispatcher; projectId: string | undefined }
-export interface CallAccess { manager: CallSessionManager; media: MediaTransportServer; speech?: SpeechSessionCoordinator }
+export interface CallAccess { manager: CallSessionManager; media: MediaTransportServer; speech?: SpeechSessionCoordinator; conversation?: VoiceConversationController }
 
 export interface RemoteAccess {
   authenticate(deviceId: string, token: string, identity: string): boolean;
@@ -123,7 +124,7 @@ export class RemoteServer {
     this.sessions.add(session);
     socket.on('error', () => {});
     socket.on('pong', () => { session.alive = true; });
-    socket.on('close', () => { clearTimeout(timer); this.sessions.delete(session); });
+    socket.on('close', () => { clearTimeout(timer); this.sessions.delete(session); if (session.deviceId) this.calls?.conversation?.connection(session.deviceId, -1); });
     socket.on('message', (data, binary) => {
       try {
         if (binary) throw new ProtocolError('binary_not_supported');
@@ -146,11 +147,27 @@ export class RemoteServer {
               session.deviceId = m.payload.deviceId; this.send(session, 'auth.success', { deviceId: session.deviceId, bridgeName: sanitize(hostname(), 80) }, m.id);
             }
             clearTimeout(timer); this.send(session, 'state.snapshot', this.snapshot());
+            this.calls?.conversation?.connection(session.deviceId!, 1);
           } catch (error) { this.send(session, m.type === 'pair.request' ? 'pair.failed' : 'auth.failed', { code: error instanceof ProtocolError ? error.code : 'storage_unavailable' }, m.id); socket.close(4003, 'Authentication failed'); }
           return;
         }
         if (!session.deviceId) throw new ProtocolError('authentication_required');
-        if (m.type.startsWith('speech.')) {
+        if (m.type.startsWith('conversation.')) {
+          const deviceId=session.deviceId;
+          void (async () => {
+            try {
+              const voice=this.calls?.conversation; if(!voice) throw new ConversationError('conversation_disabled');
+              const p=m.payload as Record<string,unknown>,callId=String(p.callId);
+              const response=m.type==='conversation.confirm'?await voice.confirm(deviceId,callId,String(p.confirmationId)):
+                m.type==='conversation.select'?await voice.select(deviceId,callId,String(p.threadId)):
+                m.type==='conversation.cancel'?voice.cancel(deviceId,callId,String(p.confirmationId)):
+                m.type==='conversation.correct'?voice.correct(deviceId,callId,String(p.confirmationId),String(p.text)):
+                voice.status(deviceId,callId,Number(p.afterSequence));
+              if(response) this.send(session,'conversation.status.response',response,m.id);
+            } catch(error) {this.send(session,'conversation.error',{code:error instanceof ConversationError || error instanceof CallError?error.code:'conversation_unavailable'},m.id);}
+          })();
+        }
+        else if (m.type.startsWith('speech.')) {
           try {
             const speech = this.calls?.speech; if (!speech) throw new CallError('speech_disabled');
             const p = m.payload as Record<string, unknown>; const callId = String(p.callId);

@@ -12,11 +12,12 @@ export class TurnManager {
   constructor(private readonly client: AppServerClient, private readonly threads: ThreadManager, private readonly store: JsonStore, private readonly emit: Emit) {}
   get(threadId: string, turnId: string): ManagedTurn | undefined { return this.store.state.turns.find(t => t.threadId === threadId && t.id === turnId); }
   active(threadId: string): ManagedTurn | undefined { return this.store.state.turns.find(t => t.threadId === threadId && !terminal(t.status)); }
-  async start(threadId: string, text: string): Promise<ManagedTurn> {
+  async start(threadId: string, text: string, beforeDispatch?: () => void): Promise<ManagedTurn> {
     const thread = this.threads.get(threadId);
     if (!this.threads.loaded.has(threadId)) throw new Error('Resume this thread before sending instructions');
     if (this.starting.has(threadId) || this.active(threadId)) throw new Error('Thread has active or unreconciled work; stop or resume it first');
     if (!text.trim() || text.length > 32000) throw new Error('Instruction must contain 1–32000 characters');
+    beforeDispatch?.();
     this.starting.add(threadId);
     try {
       const sandboxPolicy = this.threads.sandbox === 'read-only' ? { type: 'readOnly' } : { type: 'workspaceWrite', writableRoots: [thread.cwd], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true };

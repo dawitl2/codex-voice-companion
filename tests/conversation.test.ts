@@ -9,6 +9,7 @@ import {SubmissionLedger} from '../src/conversation/SubmissionLedger.js';
 import {VoiceConversationController} from '../src/conversation/VoiceConversationController.js';
 import {voiceIntent} from '../src/conversation/VoiceIntent.js';
 import type {RegistryStorage} from '../src/remote/DeviceRegistry.js';
+import {validateConversationRequest,validateConversationResponse} from '../src/conversation/ConversationProtocol.js';
 function memory():RegistryStorage {let data:unknown=[];return {load:()=>structuredClone(data),save:value=>{data=structuredClone(value);}};}
 async function fixture(t:test.TestContext) {
   const bridge=new Bridge('mock',new MockTransport(undefined,20),resolve('.runtime','conversation-tests',randomUUID()));t.after(()=>bridge.close());await bridge.connect();
@@ -64,4 +65,22 @@ test('ending a call before the final dispatch guard prevents submission',async t
   const f=await fixture(t);let entered!:()=>void,release!:()=>void;const ready=new Promise<void>(r=>entered=r),gate=new Promise<void>(r=>release=r);
   f.bridge.send=async(_id,_text,guard)=>{entered();await gate;guard?.();throw new Error('unreachable');};await f.say('Review this project');const id=f.status().proposal!.id;
   const pending=f.voice.confirm(f.device,f.call.callId,id);await ready;f.calls.end(f.device,f.call.callId);release();await pending;assert.equal(f.ledger.get(id)?.state,'rejected');assert.equal(f.bridge.store.state.turns.length,0);
+});
+test('conversation protocol rejects caller-supplied targets, arbitrary operations and unbounded replies',()=>{
+  const callId=randomUUID(),confirmationId=randomUUID();validateConversationRequest('conversation.confirm',{callId,confirmationId});
+  assert.throws(()=>validateConversationRequest('conversation.confirm',{callId,confirmationId,threadId:'other'}));
+  assert.throws(()=>validateConversationRequest('conversation.exec',{callId,command:'arbitrary'}));
+  assert.throws(()=>validateConversationRequest('conversation.correct',{callId,confirmationId,text:''}));
+  const status={callId,phase:'ready',error:'',selection:null,proposal:null,submission:null,entries:[]};validateConversationResponse('conversation.status.response',status);
+  assert.throws(()=>validateConversationResponse('conversation.status.response',{...status,entries:[{id:randomUUID(),sequence:1,kind:'codex',text:'x'.repeat(16001),spoken:'Brief reply',timestamp:new Date().toISOString()}]}));
+});
+test('a corrected instruction gets fresh authorization; the old confirmation cannot execute',async t=>{
+  const f=await fixture(t);await f.say('Review the first screen');const original=f.status().proposal!;
+  f.voice.correct(f.device,f.call.callId,original.id,'Review the second screen');const corrected=f.status().proposal!;
+  assert.notEqual(corrected.id,original.id);assert.equal(corrected.text,'Review the second screen');await assert.rejects(f.voice.confirm(f.device,f.call.callId,original.id));assert.equal(f.ledger.list().length,0);
+});
+test('terminal response is genuine turn output, separated from deterministic status and missing output is honest',async t=>{
+  const f=await fixture(t);await f.say('A harmless reply');await f.say('Yes');
+  await new Promise(resolve=>setTimeout(resolve,100));const status=f.status();assert.equal(status.submission?.state,'completed');
+  const entry=status.entries.find(e=>e.kind==='codex')!;assert.match(entry.text,/MOCK/);assert.match(entry.spoken,/Simulated task/);assert.doesNotMatch(entry.spoken,/tests passed/i);
 });

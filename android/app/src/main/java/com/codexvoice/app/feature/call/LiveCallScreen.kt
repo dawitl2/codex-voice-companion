@@ -25,12 +25,14 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.codexvoice.app.core.calls.*
 import com.codexvoice.app.core.remote.ClientState
 import com.codexvoice.app.core.speech.*
+import com.codexvoice.app.core.conversation.*
 import kotlinx.coroutines.delay
 
 @Composable fun LiveCallScreen(state: LiveCallState, remote: ClientState?, onAnswer: () -> Unit, onDecline: () -> Unit,
     onEnd: () -> Unit, onMute: () -> Unit, onSpeaker: () -> Unit, onTone: () -> Unit,
     onReturn: () -> Unit, onResults: () -> Unit, onPermissions: () -> Unit, ringEnabled: Boolean = false,
-    speech: SpeechUiState = SpeechUiState(), onRepeat: () -> Unit = {}, onStopSpeech: () -> Unit = {}, onFinishSpeech: () -> Unit = {}) {
+    speech: SpeechUiState = SpeechUiState(), onRepeat: () -> Unit = {}, onStopSpeech: () -> Unit = {}, onFinishSpeech: () -> Unit = {},
+    conversation:ConversationState=ConversationState(),onConfirm:(String)->Unit={},onCancel:(String)->Unit={},onCorrect:(String,String)->Unit={_,_->},onSelect:(String)->Unit={}) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val ringer = remember(state.offer?.callId) { IncomingCallRinger(context, state.offer?.expiresAt ?: 0) }
@@ -80,7 +82,7 @@ import kotlinx.coroutines.delay
             }
             Spacer(Modifier.height(12.dp))
             Text(if (state.offer?.mode == "mock") "Simulated task · Audio only" else "Private audio", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("Local speech · Commands stay on the PC", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(if(conversation.enabled)"Voice instructions need confirmation" else "Local speech", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (state.problem.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
                 Text(state.problem, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
@@ -103,6 +105,7 @@ import kotlinx.coroutines.delay
                 }
                 LivePhase.ACTIVE -> {
                     Text(speechLabel(state.capturing,state.muted,speech), style = MaterialTheme.typography.titleMedium)
+                    ConversationPanel(conversation,remote?.snapshot?.threads ?: emptyList(),onConfirm,onCancel,onCorrect,onSelect)
                     if (speech.summary.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
                         Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer) {
@@ -123,7 +126,7 @@ import kotlinx.coroutines.delay
                     }
                     if(speech.error.isNotEmpty()) Text(speechErrorText(speech.error),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        TextButton(onRepeat,enabled=speech.summary.isNotEmpty() && speech.ttsStatus=="ready") { Text("Repeat summary") }
+                        TextButton(onRepeat,enabled=speech.summary.isNotEmpty() && speech.ttsStatus=="ready") { Text(if(conversation.enabled)"Repeat response" else "Repeat summary") }
                         TextButton(onStopSpeech,enabled=speech.speaking || speech.phase=="speaking") { Text("Stop speaking") }
                     }
                     TextButton(onFinishSpeech,enabled=state.capturing && !speech.speaking) { Text("Finish speaking") }

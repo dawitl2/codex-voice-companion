@@ -43,10 +43,12 @@ class ProtocolIntegrationTest {
         val notificationResponses = ConcurrentLinkedQueue<ServerMessage>()
         val callResponses = ConcurrentLinkedQueue<ServerMessage>()
         val speechResponses = ConcurrentLinkedQueue<ServerMessage>()
+        val conversationResponses=ConcurrentLinkedQueue<ServerMessage>()
         var mediaSocket: WebSocket? = null
         scope.launch(start = CoroutineStart.UNDISPATCHED) { first.notifications.collect { notificationResponses.add(it) } }
         scope.launch(start = CoroutineStart.UNDISPATCHED) { first.calls.collect { callResponses.add(it) } }
         scope.launch(start = CoroutineStart.UNDISPATCHED) { first.speech.collect { speechResponses.add(it) } }
+        scope.launch(start=CoroutineStart.UNDISPATCHED){first.conversation.collect{conversationResponses.add(it)}}
         suspend fun until(predicate: () -> Boolean) { withTimeout(15000) { while (!predicate()) delay(20) } }
         try {
             first.foreground(true); first.pair(fixture.get("endpoint").asString, fixture.get("code").asString)
@@ -91,7 +93,8 @@ class ProtocolIntegrationTest {
             first.speech("speech.summary.request",mapOf("callId" to call.callId))
             until { speechResponses.any { it.type=="speech.summary.response" } }
             assertTrue(speechResponses.first { it.type=="speech.summary.response" }.payload["text"].asString.startsWith("Simulated task."))
-            repeat(20) { index -> val bytes = ByteArray(660); AudioFrames.encode(bytes, ShortArray(320) { 4000 }, index.toLong(), index * 20L); assertTrue(mediaSocket!!.send(bytes.toByteString())); delay(20) }
+            val mediaOriginMs=System.nanoTime()/1000000
+            repeat(20) { index -> val bytes = ByteArray(660); AudioFrames.encode(bytes, ShortArray(320) { 4000 }, index.toLong(), System.nanoTime()/1000000-mediaOriginMs); assertTrue(mediaSocket!!.send(bytes.toByteString())); delay(20) }
             until { mediaMessages.any { it["type"].asString == "media.metrics" && it["uplinkFrames"].asInt >= 20 } }
             first.speech("speech.finish",mapOf("callId" to call.callId))
             until {
@@ -102,12 +105,29 @@ class ProtocolIntegrationTest {
             val transcript=speechResponses.first { it.type=="speech.status.response" && it.payload["utterances"].asJsonArray.size()>0 }.payload["utterances"].asJsonArray.first().asJsonObject
             assertEquals("Synthetic protocol fixture transcript",transcript["text"].asString)
             assertTrue(transcript["final"].asBoolean)
+            first.conversation("conversation.status.request",mapOf("callId" to call.callId,"afterSequence" to 0))
+            until{conversationResponses.any{it.type=="conversation.status.response" && !it.payload["proposal"].isJsonNull}}
+            val proposal=conversationResponses.first{it.type=="conversation.status.response" && !it.payload["proposal"].isJsonNull}.payload["proposal"].asJsonObject
+            assertEquals("Synthetic protocol fixture transcript",proposal["text"].asString)
+            val correction=first.conversation("conversation.correct",mapOf("callId" to call.callId,"confirmationId" to proposal["id"].asString,"text" to "Controlled corrected protocol request"))
+            until{conversationResponses.any{it.correlationId==correction}}
+            val corrected=conversationResponses.first{it.correlationId==correction}.payload["proposal"].asJsonObject
+            assertNotEquals(proposal["id"].asString,corrected["id"].asString)
+            repeat(20){index->val bytes=ByteArray(660);AudioFrames.encode(bytes,ShortArray(320){4000},20L+index,System.nanoTime()/1000000-mediaOriginMs);mediaSocket!!.send(bytes.toByteString());delay(20)}
+            first.speech("speech.finish",mapOf("callId" to call.callId))
+            until{first.state.value.snapshot?.turns?.size==2 && first.state.value.snapshot?.turns?.lastOrNull()?.status=="completed"}
+            val confirmation=first.conversation("conversation.confirm",mapOf("callId" to call.callId,"confirmationId" to corrected["id"].asString))
+            until{conversationResponses.any{it.correlationId==confirmation}}
+            val accepted=conversationResponses.first{it.correlationId==confirmation}.payload["submission"].asJsonObject
+            assertEquals("completed",accepted["state"].asString);assertEquals(call.threadId,accepted["threadId"].asString)
+            assertEquals(first.state.value.snapshot!!.turns.last().id,accepted["turnId"].asString)
+            assertEquals(2,first.state.value.snapshot!!.turns.size)
             mediaSocket!!.send("""{"version":1,"type":"media.tone"}""")
             until { toneFrames.get() >= 10 }
             mediaSocket!!.send("""{"version":1,"type":"media.mute","muted":true}""")
             until { mediaMessages.any { it["type"].asString == "media.metrics" && it["muted"].asBoolean } }
             val receivedBeforeMute = mediaMessages.last { it["type"].asString == "media.metrics" }["uplinkFrames"].asInt
-            repeat(5) { index -> val bytes = ByteArray(660); AudioFrames.encode(bytes, ShortArray(320) { 4000 }, 20L + index, 400L + index * 20); mediaSocket!!.send(bytes.toByteString()); delay(20) }
+            repeat(5) { index -> val bytes = ByteArray(660); AudioFrames.encode(bytes, ShortArray(320) { 4000 }, 40L + index, System.nanoTime()/1000000-mediaOriginMs); mediaSocket!!.send(bytes.toByteString()); delay(20) }
             delay(1100)
             assertEquals(receivedBeforeMute, mediaMessages.last { it["type"].asString == "media.metrics" }["uplinkFrames"].asInt)
             mediaSocket!!.send("""{"version":1,"type":"media.end"}""")
@@ -118,7 +138,7 @@ class ProtocolIntegrationTest {
             val resumed = RemoteClient(scope, sockets, store); second = resumed; resumed.foreground(true)
             until { resumed.state.value.status == RemoteStatus.CONNECTED }
             assertEquals(epoch, resumed.state.value.snapshot!!.epoch)
-            assertEquals(1, resumed.state.value.snapshot!!.history.count { it.type == "turn.completed" })
+            assertEquals(2, resumed.state.value.snapshot!!.history.count { it.type == "turn.completed" })
             File(fixture.get("control").asString).writeText("revoke")
             until { resumed.state.value.status == RemoteStatus.AUTH_FAILED }
             assertFalse(resumed.state.value.paired); assertNull(store.value)

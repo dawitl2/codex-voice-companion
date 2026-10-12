@@ -8,9 +8,11 @@ export interface FinalTranscription { utteranceId: string; sequence: number; sta
 interface SpeechSession { callId: string; deviceId: string; enabled: boolean; speaking: boolean; segmenter: UtteranceSegmenter; results: FinalTranscription[]; sequence: number; error: string; abort: AbortController | null; pending: SpeechSegment | null; lastFrame: number }
 export class SpeechSessionCoordinator {
   private readonly sessions = new Map<string, SpeechSession>();
+  private readonly listeners = new Set<(call: CallSession, utterance: FinalTranscription) => void>();
   private engineState = 'loading'; private engineError = ''; private closed = false;
   private readonly unsubscribe: () => void;
   readonly initialization: Promise<void>;
+  onTranscription(listener: (call: CallSession, utterance: FinalTranscription) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   constructor(private readonly calls: CallSessionManager, private readonly bridge: Bridge, private readonly engine: SpeechRecognitionEngine) {
     this.initialization = engine.prepare().then(() => { this.engineState = 'ready'; }, error => { this.engineState = 'unavailable'; this.engineError = error instanceof SpeechError ? error.code : 'asr_unavailable'; });
     this.unsubscribe = calls.onChange(call => { const session = this.sessions.get(call.callId); if (!session) return; if (TERMINAL.has(call.state) || call.state !== 'active') this.remove(session); else if (call.muted) this.reset(session); });
@@ -46,12 +48,14 @@ export class SpeechSessionCoordinator {
     void this.engine.recognize(segment.pcm, abort.signal).then(result => {
       if (abort.signal.aborted || this.sessions.get(s.callId) !== s || this.closed) return;
       const call = this.calls.status(s.deviceId, s.callId); if (call.state !== 'active' || s.speaking || !s.enabled || call.muted) return;
-      s.results.push({ utteranceId: randomUUID(), sequence: ++s.sequence, startedAt: new Date(segment.startedAt).toISOString(), endedAt: new Date(segment.endedAt).toISOString(), text: result.text, language: 'en', final: true, processingMs: result.processingMs });
+      const utterance: FinalTranscription = { utteranceId: randomUUID(), sequence: ++s.sequence, startedAt: new Date(segment.startedAt).toISOString(), endedAt: new Date(segment.endedAt).toISOString(), text: result.text, language: 'en', final: true, processingMs: result.processingMs };
+      s.results.push(utterance);
       if (s.results.length > 8) s.results.shift();
+      for (const listener of this.listeners) { try { listener({ ...call, deviceId: s.deviceId }, { ...utterance }); } catch { /* Consumer errors cannot crash ASR/media. */ } }
     }).catch(error => { if (!abort.signal.aborted && this.sessions.get(s.callId) === s) s.error = error instanceof SpeechError ? error.code : 'recognition_failed'; })
       .finally(() => { segment.pcm.fill(0); if (s.abort !== abort) return; s.abort = null; const pending = s.pending; s.pending = null; if (pending && this.sessions.get(s.callId) === s && s.enabled && !s.speaking) this.enqueue(s, pending); else pending?.pcm.fill(0); });
   }
   private reset(s: SpeechSession) { s.segmenter.clear(); s.abort?.abort(); s.pending?.pcm.fill(0); s.pending = null; s.lastFrame = 0; }
   private remove(s: SpeechSession) { this.reset(s); s.results = []; this.sessions.delete(s.callId); }
-  close() { this.closed = true; this.unsubscribe(); for (const s of this.sessions.values()) this.remove(s); this.engine.close(); }
+  close() { this.closed = true; this.unsubscribe(); this.listeners.clear(); for (const s of this.sessions.values()) this.remove(s); this.engine.close(); }
 }

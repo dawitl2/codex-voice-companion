@@ -54,6 +54,7 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
     val liveCall by viewModel.liveCallState.collectAsStateWithLifecycle()
     val callSettingsStatus by viewModel.callSettingsStatus.collectAsStateWithLifecycle()
     val speechState by viewModel.speechState.collectAsStateWithLifecycle()
+    val conversationState by viewModel.conversationState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var pendingEnable by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -109,7 +110,8 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 viewModel::muteLiveCall, viewModel::speakerLiveCall, viewModel::testLiveAudio, viewModel::dismissLiveCall, viewModel::liveCallResults,
                 { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))) },
                 ringEnabled = prefs.notificationsEnabled && prefs.notificationSound, speech = speechState,
-                onRepeat = viewModel::repeatSummary, onStopSpeech = viewModel::stopSpeaking, onFinishSpeech = viewModel::finishSpeaking)
+                onRepeat = viewModel::repeatSummary, onStopSpeech = viewModel::stopSpeaking, onFinishSpeech = viewModel::finishSpeaking,
+                conversation=conversationState,onConfirm=viewModel::confirmVoice,onCancel=viewModel::cancelVoice,onCorrect=viewModel::correctVoice,onSelect=viewModel::selectVoiceThread)
         } else if (notification.alert != null) {
             BackHandler { viewModel.dismissNotification() }
             TaskAlertScreen(notification, dashboard.remote, viewModel::viewNotificationResults, viewModel::dismissNotification, viewModel::connectPc)
