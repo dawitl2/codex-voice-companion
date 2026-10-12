@@ -14,6 +14,7 @@ import java.io.File
 /** Existing MainActivity/UI, production socket and Keystore; PC tasks are simulated fixtures. */
 class PrivateMonitorUiTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
+    @org.junit.Before fun keepTestVisible() { compose.runOnUiThread { compose.activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) } }
     @Test fun settingsPairDashboardHistoryRotationAndForgetOverPrivateWss() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         assumeTrue("Run scripts/device-verification.ps1 -Ui", InstrumentationRegistry.getArguments().getString("privateRoute") == "true")
@@ -43,11 +44,13 @@ class PrivateMonitorUiTest {
             compose.onNodeWithText("Clear sample history").assertDoesNotExist()
             compose.activityRule.scenario.recreate()
             compose.onNodeWithText("Settings").performClick()
-            compose.onNode(hasScrollAction()).performScrollToNode(hasText("Connected"))
+            compose.onNode(hasScrollAction()).performScrollToNode(hasText("PC monitor"))
             untilText("Connected")
             compose.runOnUiThread { compose.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
             untilText("Settings")
-            compose.onNode(hasScrollAction()).performScrollToNode(hasText("Connected"))
+            compose.onNode(hasScrollAction()).performScrollToNode(hasText("PC monitor"))
+            untilText("Connected")
+            compose.onNodeWithText("Connected").performScrollTo()
             compose.onNodeWithText("Connected").assertIsDisplayed()
             compose.onNodeWithText("Forget paired PC").performScrollTo().performClick()
             compose.onNodeWithText("Forget").performClick()

@@ -2,7 +2,7 @@ param([string]$Directory = "$env:USERPROFILE\.codex-voice\firebase")
 $ErrorActionPreference = 'Stop'
 $credentialDirectory = [IO.Path]::GetFullPath($Directory)
 $repositoryDirectory = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
-if ($credentialDirectory.StartsWith($repositoryDirectory + '\', [StringComparison]::OrdinalIgnoreCase) -or $credentialDirectory -eq $repositoryDirectory) { throw 'Store server credentials outside the repository' }
+if ($credentialDirectory.StartsWith($repositoryDirectory + '\', [StringComparison]::OrdinalIgnoreCase) -or $repositoryDirectory.StartsWith($credentialDirectory.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or $credentialDirectory -eq $repositoryDirectory) { throw 'Use a dedicated credential folder outside the repository and its parent directories' }
 New-Item -ItemType Directory -Path $credentialDirectory -Force | Out-Null
 if ((Get-Item -LiteralPath $credentialDirectory).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse point refused' }
 $currentSid = [Security.Principal.WindowsIdentity]::GetCurrent().User

@@ -25,6 +25,7 @@ import javax.crypto.spec.SecretKeySpec
 /** Device-local signed fixtures exercise Android behavior; these are NOT Firebase delivery tests. */
 class TaskNotificationTest {
     @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    @org.junit.Before fun keepTestVisible() { compose.runOnUiThread { compose.activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) } }
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private fun fixture(kind: String = "completed"): Pair<Credential, Map<String, String>> {
         val credential = Credential("wss://test.example.ts.net/remote", UUID.randomUUID().toString(), "A".repeat(43), "Local fixture", enabled = false)
@@ -48,14 +49,22 @@ class TaskNotificationTest {
             assertEquals(NotificationManager.IMPORTANCE_HIGH, channel.importance); assertNotNull(channel.sound); assertTrue(channel.shouldVibrate())
             assertNull(posted.notification.fullScreenIntent); assertTrue(posted.notification.extras.getString("android.title")!!.contains("Simulated"))
             assertTrue(store.state.value.receipts.any { it.eventId == id && it.stage == "posted" })
+            assertTrue(PushStore(context).state.value.seen.containsKey(id))
+            assertFalse(java.io.File(context.noBackupFilesDir, "notifications.enc").readBytes().toString(Charsets.UTF_8).contains(credential.deviceId))
             PushReceiver.receive(context, data); assertEquals(1, store.state.value.events.count { it.eventId == id })
             posted.notification.actions.single { it.title.toString() == "Dismiss" }.actionIntent.send()
             repeat(100) { if (manager.activeNotifications.any { it.id == TaskNotifications.id(id) }) Thread.sleep(20) }
             assertFalse(manager.activeNotifications.any { it.id == TaskNotifications.id(id) }); assertEquals(credential.deviceId, credentials.load()?.deviceId)
             store.update { it.copy(preferences = it.preferences.copy(completed = false)) }
             val disabledData = data.toMutableMap().apply { put("eventId", "b".repeat(64)) }
-            // A tampered payload and the disabled category both fail closed.
             PushReceiver.receive(context, disabledData); assertFalse(manager.activeNotifications.any { it.id == TaskNotifications.id("b".repeat(64)) })
+            val unsigned = disabledData.filterKeys { it != "signature" }
+            val signature = Mac.getInstance("HmacSHA256").run {
+                init(SecretKeySpec(MessageDigest.getInstance("SHA-256").digest(credential.token.toByteArray()), "HmacSHA256"))
+                Base64.getUrlEncoder().withoutPadding().encodeToString(doFinal(unsigned.values.joinToString("\n").toByteArray()))
+            }
+            PushReceiver.receive(context, unsigned + ("signature" to signature))
+            assertFalse(store.state.value.seen.containsKey("b".repeat(64)))
         } finally {
             TaskNotifications.cancel(context, id); credentials.clear()
             store.update { original.copy(fid = it.fid ?: original.fid) }

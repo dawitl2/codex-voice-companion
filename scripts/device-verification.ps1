@@ -59,6 +59,11 @@ try {
   $errorPath = Join-Path $deviceDirectory 'instrumentation-errors.txt'
   $mobileFlag = if ($MobileData) { 'true' } else { 'false' }
   $testClass = if ($RealSnapshot) { 'com.codexvoice.app.RealSnapshotTest' } elseif ($Ui) { 'com.codexvoice.app.PrivateMonitorUiTest' } else { 'com.codexvoice.app.PrivateRouteTest' }
+  if ($Ui) {
+    # Wake for UI testing. Android enforces any required secure unlock; no PIN is supplied.
+    & $adbExe -s $serial shell input keyevent KEYCODE_WAKEUP
+    & $adbExe -s $serial shell wm dismiss-keyguard
+  }
   $instrumentProcess = Start-Process -FilePath $adbExe -ArgumentList @('-s',$serial,'shell','am','instrument','-w','-e','class',$testClass,'-e','privateRoute','true','-e','mobileData',$mobileFlag,'com.codexvoice.app.test/androidx.test.runner.AndroidJUnitRunner') -WindowStyle Hidden -PassThru -RedirectStandardOutput $outputPath -RedirectStandardError $errorPath
   $deviceDeadline = [DateTime]::UtcNow.AddMinutes(6)
   while (-not $instrumentProcess.HasExited) {

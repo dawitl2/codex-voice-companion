@@ -46,8 +46,10 @@ object TaskNotifications {
             manager.createNotificationChannel(channel)
         }
         val open = PendingIntent.getActivity(context, id(event.eventId), Intent(context, MainActivity::class.java).putExtra(EXTRA_EVENT, event.eventId)
+            .setData(android.net.Uri.parse("codexvoice-alert://event/${event.eventId}"))
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val dismiss = PendingIntent.getBroadcast(context, id(event.eventId), Intent(context, DismissNotificationReceiver::class.java).putExtra(EXTRA_EVENT, event.eventId), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val dismiss = PendingIntent.getBroadcast(context, id(event.eventId), Intent(context, DismissNotificationReceiver::class.java).putExtra(EXTRA_EVENT, event.eventId)
+            .setData(android.net.Uri.parse("codexvoice-alert://event/${event.eventId}")), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val simulated = if (event.mode == "mock") "Simulated · " else ""
         val body = when (event.kind) {
             "completed" -> "A Codex turn completed. Open to inspect its outcome."
@@ -61,9 +63,9 @@ object TaskNotifications {
             .setAutoCancel(true).setOnlyAlertOnce(true).setCategory(NotificationCompat.CATEGORY_EVENT).setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setWhen(java.time.Instant.parse(event.occurredAt).toEpochMilli()).setTimeoutAfter((event.expires - System.currentTimeMillis()).coerceAtLeast(1))
             .setPriority(NotificationCompat.PRIORITY_HIGH).build()
-        try { manager.notify(id(event.eventId), notification); return true } catch (_: SecurityException) { return false }
+        try { manager.notify(event.eventId, id(event.eventId), notification); return true } catch (_: SecurityException) { return false }
     }
-    fun cancel(context: Context, eventId: String) { context.getSystemService(NotificationManager::class.java).cancel(id(eventId)) }
+    fun cancel(context: Context, eventId: String) { context.getSystemService(NotificationManager::class.java).cancel(eventId, id(eventId)) }
 }
 class DismissNotificationReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

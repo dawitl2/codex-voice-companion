@@ -38,3 +38,9 @@ test('outbound validation rejects invalid snapshots, private extra fields and un
   assert.throws(() => encode('turn/start', {}), /unknown_message/);
   assert.throws(() => encode('auth.success', { deviceId: 'invalid', bridgeName: 'PC' }), /invalid_message/);
 });
+test('notification contract rejects caller-selected device targets and private push fields', () => {
+  const registration = { fid: 'c' + 'A'.repeat(21), projectId: 'codex-voice-example', preferences: { enabled: true, completed: true, failed: true, interrupted: false, approval: true } };
+  assert.equal(parseClient(JSON.stringify(envelope('notification.register', registration))).type, 'notification.register');
+  for (const payload of [{ ...registration, deviceId: 'another-device' }, { ...registration, token: 'secret' }, { ...registration, preferences: { ...registration.preferences, enabled: 'true' } }]) assert.throws(() => parseClient(JSON.stringify(envelope('notification.register', payload))));
+  assert.throws(() => encode('notification.status.response', { registered: true, configured: true, preferences: registration.preferences, diagnostic: 'ready', fid: registration.fid }));
+});

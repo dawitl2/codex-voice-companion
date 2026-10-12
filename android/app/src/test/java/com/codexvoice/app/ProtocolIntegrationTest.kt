@@ -9,6 +9,10 @@ import java.util.concurrent.TimeUnit
 import org.junit.Test
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
+import com.codexvoice.app.core.notifications.PushParser
+import com.codexvoice.app.core.notifications.PushPreferences
+import kotlinx.coroutines.flow.collect
+import java.util.concurrent.ConcurrentLinkedQueue
 
 class ProtocolIntegrationTest {
     @Test fun actualKotlinClientPairsWithNodeBridgeCompletesReconnectsAndIsRevoked() = runBlocking {
@@ -33,12 +37,28 @@ class ProtocolIntegrationTest {
         }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default); val store = MemoryCredentials()
         val first = RemoteClient(scope, sockets, store); var second: RemoteClient? = null
+        val notificationResponses = ConcurrentLinkedQueue<ServerMessage>()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { first.notifications.collect { notificationResponses.add(it) } }
         suspend fun until(predicate: () -> Boolean) { withTimeout(15000) { while (!predicate()) delay(20) } }
         try {
             first.foreground(true); first.pair(fixture.get("endpoint").asString, fixture.get("code").asString)
+            until { first.state.value.status == RemoteStatus.CONNECTED }
+            first.notification("notification.register", mapOf("fid" to ("c" + "A".repeat(21)), "projectId" to "codex-voice-example", "preferences" to PushPreferences(enabled = true).server()))
+            until { notificationResponses.any { it.type == "notification.status.response" && it.payload["registered"].asBoolean } }
             until { first.state.value.snapshot?.turns?.any { it.status == "completed" } == true }
             assertEquals(RemoteStatus.CONNECTED, first.state.value.status); assertEquals("mock", first.state.value.snapshot!!.mode)
             assertEquals(1, first.state.value.snapshot!!.history.count { it.type == "turn.completed" })
+            val pushFile = File(fixture["pushFile"].asString); until { pushFile.exists() }
+            val push = JsonParser.parseString(pushFile.readText()).asJsonObject.entrySet().associate { it.key to it.value.asString }
+            val event = PushParser.parse(push, store.value, System.currentTimeMillis())
+            assertNotNull("Actual Node payload signature and fields must validate in Kotlin", event)
+            assertFalse(push.containsKey("threadId")); assertFalse(push.containsKey("result"))
+            first.notification("notification.event.request", mapOf("eventId" to event!!.eventId))
+            until { notificationResponses.any { it.type == "notification.event.response" } }
+            val details = notificationResponses.first { it.type == "notification.event.response" }.payload
+            assertEquals(first.state.value.snapshot!!.turns.single().id, details["turnId"].asString)
+            first.notification("notification.receipt", mapOf("eventId" to event.eventId, "stage" to "received"))
+            until { notificationResponses.any { it.type == "notification.receipt.response" } }
             val epoch = first.state.value.snapshot!!.epoch; first.close()
             val resumed = RemoteClient(scope, sockets, store); second = resumed; resumed.foreground(true)
             until { resumed.state.value.status == RemoteStatus.CONNECTED }

@@ -5,7 +5,10 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.codexvoice.app.core.remote.KeystoreCredentialStore
 import android.content.Context
+import android.annotation.SuppressLint
 
+// FID registration replaces the deprecated token callback in Firebase Messaging 26.
+@SuppressLint("MissingFirebaseInstanceTokenRefresh")
 class CodexMessagingService : FirebaseMessagingService() {
     override fun onRegistered(installationId: String) {
         try { PushStore.get(this).register(installationId) } catch (_: Exception) { /* Pending registration is retried on foreground startup. */ }

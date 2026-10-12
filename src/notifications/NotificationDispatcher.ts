@@ -27,7 +27,7 @@ export class NotificationDispatcher {
     try {
       for (const target of this.registry.pushTargets()) {
         if (!target.preferences.enabled || !target.preferences[event.kind] || Date.parse(event.occurredAt) < Date.parse(target.registeredAt)) continue;
-        const row = this.store.create(target.id, event); if (!row) continue;
+        const row = this.store.create(target.id, event); if (!row) { if (!this.store.find(target.id, event.eventId)) this.diagnostic = 'dedup_capacity_reached'; continue; }
         const recent = (this.rate.get(target.id) ?? []).filter(t => t > this.now() - 60000);
         if (recent.length >= 6 || this.pending.size >= 32) { row.status = 'suppressed'; row.code = 'rate_limited'; this.store.save(); continue; }
         recent.push(this.now()); this.rate.set(target.id, recent);

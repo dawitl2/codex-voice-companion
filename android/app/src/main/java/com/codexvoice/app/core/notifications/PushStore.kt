@@ -19,7 +19,7 @@ data class PushState(val fid: String? = null, val preferences: PushPreferences =
     val receipts: List<PushReceipt> = emptyList(), val seen: Map<String, Long> = emptyMap()) {
     override fun toString() = "PushState(redacted)"
 }
-class PushStore private constructor(context: Context) {
+class PushStore(context: Context) {
     private val file = AtomicFile(File(context.noBackupFilesDir, "notifications.enc"))
     private val alias = "codex-voice-notifications-v1"
     private val gson = Gson()
