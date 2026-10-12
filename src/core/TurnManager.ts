@@ -95,7 +95,7 @@ export class TurnManager {
       if (existing < 0) turn.commandResults.push(row); else turn.commandResults[existing] = row;
     }
   }
-  private finish(turn: ManagedTurn, wire: Record<string, unknown>): void {
+  private finish(turn: ManagedTurn, wire: Record<string, unknown>, reconciled = false): void {
     if (!['completed','failed','interrupted'].includes(String(wire.status))) throw new Error('Invalid terminal turn status');
     if (terminal(turn.status)) return;
     if (Array.isArray(wire.items)) for (const item of wire.items) this.item(turn, object(item));
@@ -106,14 +106,14 @@ export class TurnManager {
     if (wire.error) turn.error = sanitize(object(wire.error).message ?? 'Codex turn failed');
     if (!turn.completionEmitted) {
       turn.completionEmitted = true;
-      this.emit(turn.status === 'completed' ? 'turn.completed' : turn.status === 'failed' ? 'turn.failed' : 'turn.interrupted', summarize(this.threads.get(turn.threadId), turn), turn.threadId, turn.id);
+      this.emit(turn.status === 'completed' ? 'turn.completed' : turn.status === 'failed' ? 'turn.failed' : 'turn.interrupted', summarize(this.threads.get(turn.threadId), turn), turn.threadId, turn.id, { reconciled });
     }
   }
   reconcile(threadId: string, wire: Record<string, unknown>): void {
     if (!Array.isArray(wire.turns)) throw new Error('Resumption omitted turn history; cannot reconcile safely');
     for (const raw of wire.turns) {
       const t = object(raw); const turn = this.ensure(threadId, identifier(t.id));
-      if (['completed','failed','interrupted'].includes(String(t.status))) this.finish(turn, t);
+      if (['completed','failed','interrupted'].includes(String(t.status))) this.finish(turn, t, true);
       else if (t.status === 'inProgress' && !terminal(turn.status)) turn.status = 'running';
       else if (t.status !== 'inProgress') throw new Error('Unknown resumed turn status');
     }

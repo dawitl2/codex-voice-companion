@@ -5,7 +5,7 @@ import { TurnManager } from './TurnManager.js';
 import { JsonStore } from '../storage/JsonStore.js';
 import { identifier, object, sanitize, terminal } from '../utils/safe.js';
 
-type Emit = (type: BridgeEvent['type'], summary: string, threadId?: string, turnId?: string) => void;
+type Emit = (type: BridgeEvent['type'], summary: string, threadId?: string, turnId?: string, metadata?: BridgeEvent['metadata']) => void;
 export class ApprovalManager {
   private readonly timers = new Map<string, NodeJS.Timeout>();
   constructor(private readonly client: AppServerClient, private readonly turns: TurnManager, private readonly store: JsonStore, private readonly emit: Emit, private readonly timeoutMs = 60000) {}
@@ -28,7 +28,7 @@ export class ApprovalManager {
     const summary = sanitize(`${call.method.includes('commandExecution') ? 'Command' : 'File change'} approval. Item: ${p.itemId ?? 'unknown'}. ${p.command ?? ''} ${p.cwd ? `Directory: ${p.cwd}.` : ''} ${p.grantRoot ? `Requested write root: ${p.grantRoot}.` : ''} ${p.reason ?? ''} ${p.networkApprovalContext ? `Network context: ${JSON.stringify(p.networkApprovalContext)}.` : ''}`, 2000);
     const record: ApprovalRecord = { id: randomUUID(), requestId: call.id, method: call.method, threadId, turnId, summary, requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + this.timeoutMs).toISOString(), status: 'pending' };
     this.store.state.approvals.push(record); this.turns.approvalState(threadId, turnId, true);
-    this.emit('approval.requested', `${record.id}: ${summary}`, threadId, turnId);
+    this.emit('approval.requested', `${record.id}: ${summary}`, threadId, turnId, { approvalId: record.id });
     this.timers.set(record.id, setTimeout(() => { try { this.resolve(record.id, false, 'expired'); } catch { if (record.status === 'pending') this.clear(record, 'unavailable'); } }, this.timeoutMs));
     this.store.save();
   }

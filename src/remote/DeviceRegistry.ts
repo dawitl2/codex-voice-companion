@@ -6,8 +6,9 @@ import { ProtocolError } from './Protocol.js';
 import { sanitize } from '../utils/safe.js';
 import type { RemoteAccess } from './RemoteServer.js';
 import { atomicReplace } from '../storage/atomicReplace.js';
+import { preferences, validFid, DEFAULT_PREFERENCES, type NotificationPreferences } from '../notifications/NotificationPolicy.js';
 
-interface Device { id: string; name: string; identity: string; digest: string; createdAt: string }
+interface Device { id: string; name: string; identity: string; digest: string; createdAt: string; push?: { fid: string; registeredAt: string; preferences: NotificationPreferences } }
 export interface RegistryStorage { load(): unknown; save(value: unknown): void }
 const hash = (secret: string) => createHash('sha256').update(secret).digest();
 function equal(secret: string, digest: string): boolean { const expected = Buffer.from(digest, 'hex'); return expected.length === 32 && timingSafeEqual(hash(secret), expected); }
@@ -21,8 +22,8 @@ function powershell(script: string, input: string): string {
 }
 export class WindowsRegistryStorage implements RegistryStorage {
   private readonly file: string;
-  constructor(directory: string) {
-    mkdirSync(directory, { recursive: true }); this.file = join(directory, 'devices.dpapi');
+  constructor(directory: string, filename: 'devices.dpapi' | 'notifications.dpapi' = 'devices.dpapi') {
+    mkdirSync(directory, { recursive: true }); this.file = join(directory, filename);
     powershell(`$path = [Console]::In.ReadToEnd();
       if ([IO.File]::GetAttributes($path) -band [IO.FileAttributes]::ReparsePoint) { throw 'Reparse point refused' };
       $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User;
@@ -56,6 +57,7 @@ export class DeviceRegistry implements RemoteAccess {
       !/^[a-f0-9-]{36}$/.test(d.id) || typeof d.name !== 'string' || d.name.length > 80 ||
       typeof d.identity !== 'string' || !d.identity || d.identity.length > 256 || !/^[a-f0-9]{64}$/.test(d.digest) || !Number.isFinite(Date.parse(d.createdAt)))) throw new Error('Invalid protected device registry');
     this.devices = data as Device[];
+    for (const d of this.devices) if (d.push) { if (!validFid(d.push.fid) || !Number.isFinite(Date.parse(d.push.registeredAt))) throw new Error('Invalid protected push registration'); preferences(d.push.preferences); }
   }
   beginPairing(): { code: string; expiresAt: string } {
     if (this.devices.length) throw new Error('One device is supported; revoke it before pairing another');
@@ -86,6 +88,31 @@ export class DeviceRegistry implements RemoteAccess {
     return accepted;
   }
   list(): { id: string; name: string; createdAt: string }[] { return this.devices.map(({ id, name, createdAt }) => ({ id, name, createdAt })); }
+  registerPush(id: string, fid: string, value: NotificationPreferences): void {
+    if (!validFid(fid)) throw new ProtocolError('invalid_registration');
+    const next = structuredClone(this.devices), device = next.find(d => d.id === id);
+    if (!device) throw new ProtocolError('revoked');
+    device.push = { fid, registeredAt: device.push?.registeredAt ?? new Date(this.now()).toISOString(), preferences: preferences(value) };
+    this.storage.save(next); this.devices = next;
+  }
+  updatePushPreferences(id: string, value: NotificationPreferences): void {
+    const next = structuredClone(this.devices), device = next.find(d => d.id === id);
+    if (!device) throw new ProtocolError('revoked');
+    if (!device.push) throw new ProtocolError('registration_required');
+    device.push.preferences = preferences(value); this.storage.save(next); this.devices = next;
+  }
+  pushState(id: string): { registered: boolean; preferences: NotificationPreferences } {
+    const device = this.devices.find(d => d.id === id); if (!device) throw new ProtocolError('revoked');
+    return { registered: !!device.push, preferences: { ...(device.push?.preferences ?? DEFAULT_PREFERENCES) } };
+  }
+  pushTargets(): { id: string; digest: string; fid: string; registeredAt: string; preferences: NotificationPreferences }[] {
+    return this.devices.flatMap(d => d.push ? [{ id: d.id, digest: d.digest, ...structuredClone(d.push) }] : []);
+  }
+  removePush(id: string, fid: string): void {
+    const next = structuredClone(this.devices), device = next.find(d => d.id === id);
+    if (!device?.push || device.push.fid !== fid) return;
+    delete device.push; this.storage.save(next); this.devices = next;
+  }
   revoke(id: string): void {
     if (!this.devices.some(d => d.id === id)) throw new Error('Unknown device');
     const next = this.devices.filter(d => d.id !== id); this.storage.save(next); this.devices = next;
