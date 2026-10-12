@@ -5,7 +5,10 @@ import { projectDirectory, samePath, disabledIntegrations, type Sandbox } from '
 import { identifier, object, requiredString, sanitize } from '../utils/safe.js';
 
 export class ThreadManager {
-  activeId: string | undefined;
+  private selectedId: string | undefined;
+  selectionVersion = 0;
+  get activeId(): string | undefined { return this.selectedId; }
+  set activeId(id: string | undefined) { if (id !== this.selectedId) { this.selectedId = id; this.selectionVersion++; } }
   readonly loaded = new Set<string>();
   constructor(private readonly client: AppServerClient, private readonly store: JsonStore, private readonly mode: Mode, readonly sandbox: Sandbox) {}
   list(): ManagedThread[] { return structuredClone(this.store.state.threads); }
@@ -26,8 +29,9 @@ export class ThreadManager {
   async resume(id: string): Promise<Record<string, unknown>> {
     const thread = this.get(id); const cwd = projectDirectory(thread.cwd);
     if (!samePath(cwd, thread.cwd)) throw new Error('Project path changed; refusing resumption');
-    const result = object(await this.client.request('thread/resume', { threadId: id, cwd, modelProvider: 'openai', serviceTier: 'default', approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: this.sandbox, config: this.config(cwd) }));
+    const result = object(await this.client.request('thread/resume', { threadId: id, cwd, model: thread.model, modelProvider: 'openai', serviceTier: 'default', approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: this.sandbox, config: this.config(cwd) }));
     const wire = this.validate(result, cwd); if (identifier(wire.id) !== id) throw new Error('Resumption returned the wrong thread');
+    if (requiredString(result.model) !== thread.model) throw new Error('Resumption changed the selected model');
     thread.status = 'ready'; thread.model = requiredString(result.model); this.loaded.add(id); this.activeId = id; this.store.save(); return wire;
   }
   private config(cwd: string): Record<string, unknown> {
