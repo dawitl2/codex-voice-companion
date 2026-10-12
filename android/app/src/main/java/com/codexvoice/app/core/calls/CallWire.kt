@@ -55,7 +55,8 @@ data class LiveCallState(val phase: LivePhase = LivePhase.IDLE, val offer: CallO
     val routeSupported: Boolean = false, val activeAt: Long = 0, val endedAt: Long = 0,
     val uplinkFrames: Long = 0, val downlinkFrames: Long = 0, val pcReceivedFrames: Long = 0,
     val inputLevel: Float = 0f, val outputLevel: Float = 0f, val dropped: Long = 0, val underruns: Long = 0,
-    val rttMs: Long = 0, val serviceRunning: Boolean = false)
+    val rttMs: Long = 0, val serviceRunning: Boolean = false,
+    val captureSampleRate: Int = 0, val playbackSampleRate: Int = 0, val renderedSamples: Long = 0)
 fun canAnswer(offer: CallOffer?, now: Long, foreground: Boolean, permitted: Boolean) =
     offer?.state == "offered" && offer.expiresAt > now && foreground && permitted
 fun canTransmit(phase: LivePhase, muted: Boolean, authorized: Boolean) = phase == LivePhase.ACTIVE && !muted && authorized

@@ -31,6 +31,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.Manifest
 import android.os.Build
+import com.codexvoice.app.core.calls.LivePhase
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 
 private data class Destination(val route: String, val title: String, val icon: ImageVector)
 private val destinations = listOf(Destination("home", "Home", Icons.Default.Home),
@@ -42,6 +45,8 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
     val call by viewModel.call.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val notification by viewModel.notificationState.collectAsStateWithLifecycle()
+    val liveCall by viewModel.liveCallState.collectAsStateWithLifecycle()
+    val callSettingsStatus by viewModel.callSettingsStatus.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var pendingEnable by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -53,6 +58,14 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
         if (value.notificationsEnabled && !prefs.notificationsEnabled && Build.VERSION.SDK_INT >= 33 && !TaskNotifications.permission(context) && !asked.getBoolean("asked", false)) {
             if (asked.edit().putBoolean("asked", true).commit()) { pendingEnable = true; permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
         } else viewModel.setNotifications(value)
+    }
+    val microphoneLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> viewModel.answerLiveCall(granted) }
+    val answerAudio = {
+        val permitted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val asked = context.getSharedPreferences("microphone-permission", android.content.Context.MODE_PRIVATE)
+        if (!permitted && !asked.getBoolean("asked", false)) {
+            if (asked.edit().putBoolean("asked", true).commit()) microphoneLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else viewModel.answerLiveCall(permitted)
     }
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
@@ -83,7 +96,12 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 }
             }
         }
-        if (notification.alert != null) {
+        if (liveCall.phase != LivePhase.IDLE) {
+            BackHandler { if (liveCall.phase == LivePhase.OFFERED) viewModel.declineLiveCall() else if (liveCall.serviceRunning || liveCall.phase == LivePhase.CONNECTING) viewModel.endLiveCall() else viewModel.dismissLiveCall() }
+            LiveCallScreen(liveCall, dashboard.remote, answerAudio, viewModel::declineLiveCall, viewModel::endLiveCall,
+                viewModel::muteLiveCall, viewModel::speakerLiveCall, viewModel::testLiveAudio, viewModel::dismissLiveCall, viewModel::liveCallResults,
+                { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))) })
+        } else if (notification.alert != null) {
             BackHandler { viewModel.dismissNotification() }
             TaskAlertScreen(notification, dashboard.remote, viewModel::viewNotificationResults, viewModel::dismissNotification, viewModel::connectPc)
         } else when (call.state) {
@@ -111,7 +129,8 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                     composable("settings") { SettingsScreen(prefs, viewModel::setTheme, viewModel::setCalling, viewModel::setReduceMotion,
                         dashboard.remote, dashboard.demoMode, viewModel::selectDemo, viewModel::pair, viewModel::connectPc, viewModel::disconnectPc, viewModel::forgetPc,
                         notification, changeNotifications, { context.startActivity(TaskNotifications.systemSettings(context)) },
-                        { attention -> context.startActivity(TaskNotifications.channelsSettings(context, attention, prefs.pushPreferences())) }) }
+                        { attention -> context.startActivity(TaskNotifications.channelsSettings(context, attention, prefs.pushPreferences())) },
+                        callSettingsStatus, viewModel::setCallInvitations) }
                 }
             }
         }

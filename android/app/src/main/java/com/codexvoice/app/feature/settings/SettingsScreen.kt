@@ -21,7 +21,7 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
     remote: ClientState? = null, demoMode: Boolean = true, onDemo: (Boolean) -> Unit = {},
     onPair: (String, String) -> Unit = { _, _ -> }, onConnect: () -> Unit = {}, onDisconnect: () -> Unit = {}, onForget: () -> Unit = {},
     notificationState: NotificationUiState = NotificationUiState(), onNotifications: (UserPreferences) -> Unit = {}, onSystemSettings: () -> Unit = {},
-    onChannelSettings: (Boolean) -> Unit = {}) {
+    onChannelSettings: (Boolean) -> Unit = {}, callStatus: String = "Call invitations disabled", onCallInvitations: (Boolean) -> Unit = {}) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { ScreenHeading("Settings", "Make room for your preferences.") }
         item { Eyebrow("Appearance") }
@@ -66,15 +66,17 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
         item {
             SettingsSurface {
                 Text("Preferred language · English", style = MaterialTheme.typography.titleMedium)
-                Text("Language selection and speech engines arrive later. No microphone or audio is active.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PreferenceSwitch("Offer audio calls", "Task alerts can offer an authenticated private audio session. Answer explicitly starts the microphone.", p.callInvitations, onCallInvitations)
+                Text(callStatus, style = MaterialTheme.typography.bodySmall)
+                Text("Audio transport is available when the PC enables calls. Speech recognition and AI speech arrive later.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         item { Eyebrow("About") }
         item {
             SettingsSurface {
                 Text("Codex Voice", style = MaterialTheme.typography.titleMedium)
-                Text("Version 0.5.0 · Experimental companion")
-                Text("A private PC task monitor with optional Firebase alerts and a separate offline demo. Live voice arrives later.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Version 0.6.0 · Experimental companion")
+                Text("A private PC task monitor with Firebase alerts, real audio transport and a separate offline demo. AI speech is not implemented.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

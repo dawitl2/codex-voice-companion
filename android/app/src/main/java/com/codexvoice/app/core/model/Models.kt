@@ -19,6 +19,7 @@ data class UserPreferences(
     val alertOnInterruption: Boolean = false,
     val notificationSound: Boolean = true,
     val notificationVibration: Boolean = true,
+    val callInvitations: Boolean = false,
 )
 fun TaskStatus.label() = when (this) {
     TaskStatus.RUNNING -> "Running"

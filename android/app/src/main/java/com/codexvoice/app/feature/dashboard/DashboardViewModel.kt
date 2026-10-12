@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 import com.codexvoice.app.core.remote.ClientState
 import com.codexvoice.app.core.notifications.*
+import com.codexvoice.app.core.calls.*
 
 data class DashboardState(
     val current: Task? = null, val history: List<Task> = emptyList(),
@@ -21,6 +22,7 @@ class DashboardViewModel(
     private val settings: PreferencesRepository,
     private val calls: CallStateMachine = CallStateMachine(),
     private val notifications: NotificationController? = null,
+    private val liveCalls: LiveCallController? = null,
 ) : ViewModel() {
     private val basicDashboard = combine(tasks.current, tasks.history, tasks.connection) { task, history, connection ->
         DashboardState(task, sortedHistory(history), connection)
@@ -34,8 +36,19 @@ class DashboardViewModel(
     private val mutableError = MutableStateFlow<String?>(null)
     val error = mutableError.asStateFlow()
     val notificationState = notifications?.state ?: MutableStateFlow(NotificationUiState()).asStateFlow()
+    val liveCallState = liveCalls?.state ?: MutableStateFlow(LiveCallState()).asStateFlow()
+    val callSettingsStatus = liveCalls?.status ?: MutableStateFlow("Call invitations disabled").asStateFlow()
+    fun setCallInvitations(value: Boolean) = save { settings.setCallInvitations(value) }
+    fun answerLiveCall(permitted: Boolean) { liveCalls?.answer(permitted) }
+    fun declineLiveCall() { liveCalls?.decline() }
+    fun endLiveCall() { liveCalls?.end() }
+    fun muteLiveCall() { liveCalls?.mute() }
+    fun speakerLiveCall() { liveCalls?.speaker() }
+    fun testLiveAudio() { liveCalls?.tone() }
+    fun dismissLiveCall() { liveCalls?.dismiss(); notifications?.dismiss() }
+    fun liveCallResults() { liveCalls?.results(); notifications?.viewResults() }
     fun setNotifications(value: UserPreferences) = save { settings.setNotifications(value) }
-    fun openNotification(id: String) { notifications?.open(id) }
+    fun openNotification(id: String) { notifications?.open(id); liveCalls?.open(id) }
     fun viewNotificationResults() { notifications?.viewResults() }
     fun dismissNotification() { notifications?.dismiss() }
     fun notificationSystemChanged() { notifications?.systemStateChanged() }
@@ -53,7 +66,7 @@ class DashboardViewModel(
     fun clearHistory() = tasks.clearHistory()
     fun resetDemo() = tasks.resetDemo()
     fun selectDemo(value: Boolean) = save { (tasks as? CompanionTaskRepository)?.selectDemo(value) }
-    fun foreground(active: Boolean) { (tasks as? CompanionTaskRepository)?.foreground(active) }
+    fun foreground(active: Boolean) { (tasks as? CompanionTaskRepository)?.foreground(active); liveCalls?.foreground(active) }
     fun pair(address: String, code: String) { (tasks as? CompanionTaskRepository)?.pair(address, code) }
     fun connectPc() { (tasks as? CompanionTaskRepository)?.connect() }
     fun disconnectPc() { (tasks as? CompanionTaskRepository)?.disconnect() }
