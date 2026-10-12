@@ -35,7 +35,7 @@ export class MockTransport implements RpcTransport {
       if (typeof id !== 'string' && typeof id !== 'number') return;
       const pending = this.approvals.get(id); if (pending) {
         this.approvals.delete(id); const decision = object(message.result).decision;
-        this.schedule(() => this.complete(pending.threadId, pending.turnId, decision === 'accept' ? 'completed' : 'interrupted', decision === 'accept' ? 'MOCK approval accepted' : 'MOCK approval declined'));
+        this.schedule(() => {this.emit({method:'serverRequest/resolved',params:{threadId:pending.threadId,requestId:id}});this.complete(pending.threadId, pending.turnId, decision === 'accept' ? 'completed' : 'interrupted', decision === 'accept' ? 'MOCK approval accepted' : 'MOCK approval declined');});
       }
       return;
     }
@@ -85,6 +85,7 @@ export class MockTransport implements RpcTransport {
     Object.assign(turn, { status, items: Array.isArray(turn.items) && turn.items.length ? turn.items : [{ id: randomUUID(), type: 'agentMessage', text }], error: status === 'failed' ? { message: 'MOCK failure' } : null });
     this.emit({ method: 'turn/completed', params: { threadId, turn } });
   }
+  finishFixtureTurn(threadId:string,turnId:string){this.complete(threadId,turnId,'completed','MOCK controlled completion');}
   private schedule(callback: () => void): void { const timer = setTimeout(() => { this.timers.delete(timer); if (this.running) callback(); }, this.delayMs); this.timers.add(timer); }
   private clearTimers(): void { for (const timer of this.timers) clearTimeout(timer); this.timers.clear(); }
   async stop(): Promise<void> { const active = this.running; this.running = false; this.clearTimers(); if (active) this.closed('MOCK transport stopped'); }

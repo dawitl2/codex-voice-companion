@@ -44,11 +44,13 @@ class ProtocolIntegrationTest {
         val callResponses = ConcurrentLinkedQueue<ServerMessage>()
         val speechResponses = ConcurrentLinkedQueue<ServerMessage>()
         val conversationResponses=ConcurrentLinkedQueue<ServerMessage>()
+        val controlResponses=ConcurrentLinkedQueue<ServerMessage>()
         var mediaSocket: WebSocket? = null
         scope.launch(start = CoroutineStart.UNDISPATCHED) { first.notifications.collect { notificationResponses.add(it) } }
         scope.launch(start = CoroutineStart.UNDISPATCHED) { first.calls.collect { callResponses.add(it) } }
         scope.launch(start = CoroutineStart.UNDISPATCHED) { first.speech.collect { speechResponses.add(it) } }
         scope.launch(start=CoroutineStart.UNDISPATCHED){first.conversation.collect{conversationResponses.add(it)}}
+        scope.launch(start=CoroutineStart.UNDISPATCHED){first.controls.collect{controlResponses.add(it)}}
         suspend fun until(predicate: () -> Boolean) { withTimeout(15000) { while (!predicate()) delay(20) } }
         try {
             first.foreground(true); first.pair(fixture.get("endpoint").asString, fixture.get("code").asString)
@@ -134,6 +136,25 @@ class ProtocolIntegrationTest {
             until { mediaMessages.any { it["type"].asString == "media.ended" } }
             first.speech("speech.status.request",mapOf("callId" to call.callId,"afterSequence" to 0))
             until { speechResponses.any { it.type=="speech.error" && it.payload["code"].asString=="call_not_active" } }
+            // New risk-focused control round trip, using actual Kotlin/Node DTOs and mock task events.
+            delay(10000) // Begin a fresh bounded rate-limit window after the media fixture.
+            File(fixture["control"].asString).writeText("waiting")
+            until{first.state.value.snapshot?.turns?.lastOrNull()?.status=="running"}
+            val current=first.state.value.snapshot!!.turns.last()
+            suspend fun control(type:String,extra:Map<String,Any> = emptyMap()):ServerMessage {
+                val id=first.control(type,mapOf("threadId" to current.threadId)+extra);until{controlResponses.any{it.correlationId==id}};return controlResponses.first{it.correlationId==id}
+            }
+            val preview=control("control.interrupt.propose",mapOf("turnId" to current.id));val op=preview.payload["operations"].asJsonArray.last().asJsonObject
+            assertEquals("proposed",op["state"].asString);assertEquals("running",first.state.value.snapshot!!.turns.last().status)
+            control("control.confirm",mapOf("operationId" to op["id"].asString));control("control.confirm",mapOf("operationId" to op["id"].asString))
+            until{first.state.value.snapshot?.turns?.lastOrNull()?.status=="interrupted"}
+            File(fixture["control"].asString).writeText("approval")
+            until{first.state.value.snapshot?.turns?.lastOrNull()?.status=="awaitingApproval"}
+            val review=control("control.status.request").payload["approvals"].asJsonArray.last().asJsonObject
+            assertEquals("echo MOCK",review["preview"].asString);assertEquals(listOf("decline"),review["allowedDecisions"].asJsonArray.map{it.asString})
+            val denial=control("control.approval.decide",mapOf("approvalId" to review["id"].asString,"transactionId" to java.util.UUID.randomUUID().toString(),"decision" to "decline","challengeId" to com.google.gson.JsonNull.INSTANCE,"signature" to com.google.gson.JsonNull.INSTANCE))
+            assertEquals("declined",denial.payload["approvals"].asJsonArray.last().asJsonObject["status"].asString)
+            until{first.state.value.snapshot?.turns?.lastOrNull()?.status=="interrupted"}
             val epoch = first.state.value.snapshot!!.epoch; first.close()
             val resumed = RemoteClient(scope, sockets, store); second = resumed; resumed.foreground(true)
             until { resumed.state.value.status == RemoteStatus.CONNECTED }

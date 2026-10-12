@@ -66,6 +66,7 @@ export class TaskControl {
     const b=this.binding(deviceId,threadId,turnId);
     if(kind==='queue'){
       if(!text.trim()||text.length>2000||sanitize(text,2000)!==text||/[\u0000-\u001f]/.test(text))throw new ControlError('invalid_instruction');
+      if(/\b(?:force[- ]?push|git\s+remote|rm\s+-rf|delete\s+(?:the\s+)?project|disable\s+(?:the\s+)?(?:sandbox|approvals?)|change\s+(?:authentication|billing)|install\s+system[- ]wide)\b/i.test(text))throw new ControlError('desktop_action_required');
       if(this.bridge.turns.get(threadId,turnId)?.status==='awaitingApproval'||this.ledger.uncertain(threadId))throw new ControlError('review_required');
       if(this.queues.has(threadId)||this.queues.size>=8)throw new ControlError('queue_exists');
     }
@@ -119,7 +120,10 @@ export class TaskControl {
   status(deviceId:string,threadId:string){
     this.owner(deviceId);const thread=this.bridge.threads.get(threadId);this.tick();const turn=this.bridge.store.state.turns.filter(t=>t.threadId===threadId).at(-1);
     const ops=[...this.operations.values()].filter(o=>o.deviceId===deviceId&&o.threadId===threadId).slice(-8).map(o=>({id:o.id,kind:o.kind,state:o.state,turnId:o.turnId,expiresAt:o.expiresAt,text:o.text}));
-    const approvals=this.bridge.store.state.approvals.filter(r=>r.threadId===threadId).slice(-8).map(r=>{const p=this.bridge.approvals.review(r.id);return {id:r.id,requestId:String(r.requestId),turnId:r.turnId,itemId:p.itemId,category:r.method,preview:p.preview,reason:p.reason,scope:p.scope,risk:p.eligible?'Desktop reviewed local action; fresh phone authentication required':'Desktop review required; scope or effect not established',status:r.status,serverConfirmed:p.serverConfirmed,createdAt:r.requestedAt,expiresAt:r.expiresAt,allowedDecisions:r.status==='pending'?(p.eligible?['accept','decline']:['decline']):[]};});
+    // JsonStore groups pending requests ahead of retained history. Never infer recency from its array order.
+    const records=this.bridge.store.state.approvals.filter(r=>r.threadId===threadId).sort((a,b)=>Date.parse(a.requestedAt)-Date.parse(b.requestedAt));
+    const displayed=records.filter(r=>r.status!=='pending').concat(records.filter(r=>r.status==='pending')).slice(-8);
+    const approvals=displayed.map(r=>{const p=this.bridge.approvals.review(r.id);return {id:r.id,requestId:String(r.requestId),turnId:r.turnId,itemId:p.itemId,category:r.method,preview:p.preview,reason:p.reason,scope:p.scope,risk:p.eligible?'Desktop reviewed local action; fresh phone authentication required':'Desktop review required; scope or effect not established',status:r.status,serverConfirmed:p.serverConfirmed,createdAt:r.requestedAt,expiresAt:r.expiresAt,allowedDecisions:r.status==='pending'?(p.eligible?['accept','decline']:['decline']):[]};});
     const reviewer=this.reviewers.find(r=>r.deviceId===deviceId);
     return {threadId,project:sanitize(basename(thread.cwd),80),mode:thread.mode,task:turn?{id:turn.id,status:turn.status,result:sanitize(turn.finalResponse,16000)}:null,progress:sanitize(this.bridge.store.state.events.filter(e=>e.threadId===threadId&&e.turnId===turn?.id).at(-1)?.summary??'No progress',240),operations:ops,approvals,reviewer:reviewer?{fingerprint:reviewer.fingerprint,trusted:reviewer.trusted}:null};
   }
@@ -127,7 +131,7 @@ export class TaskControl {
   private tick(){if(this.closed)return;
     for(const [id,c]of this.challenges)if(this.now()>=Date.parse(c.expiresAt))this.challenges.delete(id);
     for(const op of this.operations.values()){
-      if(op.kind==='queue'&&op.state==='accepted'){const row=this.ledger.get(op.id),turn=row?.turnId?this.bridge.turns.get(op.threadId,row.turnId):null;if(turn&&terminal(turn.status)){op.state=turn.status;if(row!.state!==turn.status)this.ledger.update(op.id,{state:turn.status as 'completed'|'failed'|'interrupted',finishedAt:turn.finishedAt??null});}}
+      if(op.kind==='queue'&&op.state==='accepted'){const row=this.ledger.get(op.id),turn=row?.turnId?this.bridge.turns.get(op.threadId,row.turnId):null;if(turn&&terminal(turn.status)){op.state=turn.status;if(row!.state!==turn.status)try{this.ledger.update(op.id,{state:turn.status as 'completed'|'failed'|'interrupted',finishedAt:turn.finishedAt??null});}catch{op.state='unknown';}}}
       if(op.kind==='interrupt'&&op.state==='requested'){const t=this.bridge.turns.get(op.threadId,op.turnId);if(t&&terminal(t.status))op.state=t.status;}
       if(!['proposed','queued'].includes(op.state))continue;
       try{
@@ -150,5 +154,5 @@ export class TaskControl {
       this.ledger.update(op.id,{turnId,state:'accepted',acceptedAt:new Date(this.now()).toISOString()});op.state='accepted';
     }catch{op.state=dispatched?'unknown':'rejected';if(this.ledger.get(op.id))try{this.ledger.update(op.id,{state:dispatched?'unknown':'rejected'});}catch{}op.text='';this.queues.delete(op.threadId);try{this.persist();}catch{}}
   }
-  close(){this.closed=true;clearInterval(this.timer);this.unsubscribe();for(const q of this.queues.values())q.text='';this.queues.clear();this.challenges.clear();this.operations.clear();this.persist();}
+  close(){this.closed=true;clearInterval(this.timer);this.unsubscribe();for(const q of this.queues.values())q.text='';this.queues.clear();this.challenges.clear();this.operations.clear();try{this.persist();}catch{/* Restart always discards queued input, even if shutdown storage is unavailable. */}}
 }

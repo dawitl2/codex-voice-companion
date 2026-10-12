@@ -13,6 +13,7 @@ import { MediaTransportServer } from '../src/calls/MediaTransportServer.js';
 import { SpeechSessionCoordinator } from '../src/speech/SpeechSessionCoordinator.js';
 import { VoiceConversationController } from '../src/conversation/VoiceConversationController.js';
 import { SubmissionLedger } from '../src/conversation/SubmissionLedger.js';
+import {TaskControl} from '../src/control/TaskControl.js';
 
 const directory = resolve('.runtime', 'protocol-integration'); mkdirSync(directory, { recursive: true });
 const metadata = join(directory, 'fixture.json'), control = join(directory, 'control.txt');
@@ -34,14 +35,16 @@ const coordinator = new CallEventCoordinator(bridge, registry, calls);
 // Protocol-only mock recognizer: native whisper.cpp is verified separately with real speech.
 let recognized=0,submissionData:unknown=[];
 const speech = new SpeechSessionCoordinator(calls, bridge, { prepare: async () => {}, recognize: async () => ({ text: ++recognized===1?'Synthetic protocol fixture transcript':'Yes, send it', language: 'en', processingMs: 1, loadMs: null }), close() {} });
-const conversation=new VoiceConversationController(bridge,calls,new SubmissionLedger({load:()=>submissionData,save:value=>{submissionData=structuredClone(value);}}));
+const ledger=new SubmissionLedger({load:()=>submissionData,save:value=>{submissionData=structuredClone(value);}});let controlsData:unknown=[];
+const controls=new TaskControl(bridge,ledger,{load:()=>controlsData,save:value=>{controlsData=structuredClone(value);}},id=>registry.hasDevice(id));
+const conversation=new VoiceConversationController(bridge,calls,ledger,Date.now,controls);
 speech.onTranscription((call,utterance)=>{void conversation.transcription(call,utterance);});
 const media = new MediaTransportServer(calls, 'wss://test.example.ts.net/remote', (call, pcm, level) => speech.frame(call, pcm, level));
-const remote = new RemoteServer(bridge, registry, 'wss://test.example.ts.net/remote', 0, 15000, 20000, { registry, dispatcher, projectId: 'codex-voice-example' }, { manager: calls, media, speech, conversation });
+const remote = new RemoteServer(bridge, registry, 'wss://test.example.ts.net/remote', 0, 15000, 20000, { registry, dispatcher, projectId: 'codex-voice-example' }, { manager: calls, media, speech, conversation },controls);
 let started = false, closing = false;
 async function close() {
   if (closing) return; closing = true; clearInterval(poll);
-  conversation.close();speech.close(); coordinator.close(); await remote.close(); calls.close(); await dispatcher.close(); await bridge.close();
+  controls.close();conversation.close();speech.close(); coordinator.close(); await remote.close(); calls.close(); await dispatcher.close(); await bridge.close();
   rmSync(stateDirectory, { recursive: true });
   if (existsSync(metadata)) rmSync(metadata); if (existsSync(control)) rmSync(control);
   if (existsSync(pushFile)) rmSync(pushFile);
@@ -56,6 +59,8 @@ const poll = setInterval(() => {
     const command = readFileSync(control, 'utf8').trim(); rmSync(control);
     if (command === 'revoke') for (const device of registry.list()) { registry.revoke(device.id); remote.revoke(device.id); }
     if (command === 'quit') void close();
+    if(command==='waiting')void bridge.send(threadId,'[mock:wait]');
+    if(command==='approval')void bridge.send(threadId,'[mock:approval]');
   }
 }, 30);
 process.on('SIGINT', () => { void close(); }); process.on('SIGTERM', () => { void close(); });

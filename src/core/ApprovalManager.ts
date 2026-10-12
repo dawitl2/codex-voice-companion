@@ -12,6 +12,7 @@ export class ApprovalManager {
   private readonly previews = new Map<string, Record<string, unknown>>();
   private readonly nominated = new Set<string>();
   private readonly serverConfirmed = new Set<string>();
+  private readonly liveRequests=new Map<string,string>();
   constructor(private readonly client: AppServerClient, private readonly turns: TurnManager, private readonly store: JsonStore, private readonly emit: Emit, private readonly timeoutMs = 60000) {}
   list(): ApprovalRecord[] { return structuredClone(this.store.state.approvals.filter(a => a.status === 'pending')); }
   request(call: RpcCall & { id: string | number }): void {
@@ -33,6 +34,7 @@ export class ApprovalManager {
     const record: ApprovalRecord = { id: randomUUID(), requestId: call.id, method: call.method, threadId, turnId, summary, requestedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + this.timeoutMs).toISOString(), status: 'pending' };
     this.store.state.approvals.push(record); this.turns.approvalState(threadId, turnId, true);
     this.previews.set(record.id, structuredClone(p));
+    this.liveRequests.set(JSON.stringify([threadId,call.id]),record.id);
     this.emit('approval.requested', `${record.id}: ${summary}`, threadId, turnId, { approvalId: record.id });
     this.timers.set(record.id, setTimeout(() => { try { this.resolve(record.id, false, 'expired'); } catch { if (record.status === 'pending') this.clear(record, 'unavailable'); } }, this.timeoutMs));
     this.store.save();
@@ -49,7 +51,9 @@ export class ApprovalManager {
     this.clear(record, status ?? (accept ? 'accepted' : 'declined'));
   }
   serverResolved(params: unknown): void {
-    const p = object(params); const record = this.store.state.approvals.find(a => a.requestId === p.requestId && a.threadId === p.threadId);
+    const p = object(params),key=JSON.stringify([p.threadId,p.requestId]),id=this.liveRequests.get(key);
+    const record = this.store.state.approvals.find(a => a.id === id);
+    this.liveRequests.delete(key);
     if (record) { this.serverConfirmed.add(record.id); if(record.status === 'pending') this.clear(record, 'resolved'); }
   }
   review(id: string) {
@@ -69,6 +73,7 @@ export class ApprovalManager {
     if (!p || r.status!=='pending' || Date.now()>=Date.parse(r.expiresAt) || !this.client.ready ||
       r.method!=='item/commandExecution/requestApproval' || !r.itemId || typeof p.command!=='string' || !p.command.trim() || p.command.length>4000 || sanitize(p.command,4000)!==p.command ||
       p.cwd!==cwd || (p.kind!==undefined && p.kind!=='command') || Object.keys(p).some(k=>!known.includes(k)) ||
+      r.scope!==cwd || (p.reason!=null && (typeof p.reason!=='string'||p.reason.length>1000||sanitize(p.reason,1000)!==p.reason)) ||
       ['environmentId','networkApprovalContext','proposedExecpolicyAmendment','proposedNetworkPolicyAmendments','additionalPermissions'].some(k=>p[k]!=null) ||
       /\b(?:network|permission|elevat|sandbox|credential|auth|secret|password|token|billing|delete|remove|reset|rebase|force|install)\b/i.test(r.preview+' '+r.reason)) throw new Error('Action requires desktop approval; nomination is unavailable');
     this.nominated.add(id);
@@ -83,7 +88,7 @@ export class ApprovalManager {
   }
   close(): void { for (const record of this.list()) { try { this.resolve(record.id, false); } catch { this.disconnected(); } } }
   disconnected(): void {
-    this.previews.clear(); this.nominated.clear(); this.serverConfirmed.clear();
+    this.previews.clear(); this.nominated.clear(); this.serverConfirmed.clear();this.liveRequests.clear();
     for (const timer of this.timers.values()) clearTimeout(timer); this.timers.clear();
     for (const record of this.store.state.approvals) if (record.status === 'pending') record.status = 'unavailable'; this.store.save();
   }

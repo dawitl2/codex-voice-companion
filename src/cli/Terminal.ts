@@ -20,6 +20,9 @@ summary                      Most recent turn on selected thread
 approvals                    List pending approval IDs and action descriptions
 approve <approval-id>         Explicit one-action approval
 decline <approval-id>         Reject one action
+remote-review <approval-id>   Nominate an exact desktop-reviewed local command for phone review
+reviewers                    Show registered reviewer public-key fingerprints
+trust-reviewer <device-id> <fingerprint>  Trust the key compared on the phone
 stop                         Request interruption of selected active turn
 reconnect                    Restart only the transport; select/resume before send
 pair-device                  Issue one two-minute invitation (--remote required)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:codex-voice:remote:2",
-  "title": "Codex Voice monitoring, notifications, calls, speech and confirmed conversation envelope v2",
+  "title": "Codex Voice authenticated monitoring, voice and confirmed task controls v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -1288,6 +1288,324 @@
           }
         }
       }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.status.request"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "threadId"
+          ],
+          "properties": {
+            "threadId": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.interrupt.propose"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "threadId",
+            "turnId"
+          ],
+          "properties": {
+            "threadId": {
+              "$ref": "#/$defs/id"
+            },
+            "turnId": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.queue.propose"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "threadId",
+            "turnId",
+            "text"
+          ],
+          "properties": {
+            "threadId": {
+              "$ref": "#/$defs/id"
+            },
+            "turnId": {
+              "$ref": "#/$defs/id"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.deny.propose"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "threadId",
+            "turnId",
+            "approvalId"
+          ],
+          "properties": {
+            "threadId": {
+              "$ref": "#/$defs/id"
+            },
+            "turnId": {
+              "$ref": "#/$defs/id"
+            },
+            "approvalId": {
+              "$ref": "#/$defs/deviceId"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.confirm"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "threadId",
+            "operationId"
+          ],
+          "properties": {
+            "threadId": {
+              "$ref": "#/$defs/id"
+            },
+            "operationId": {
+              "$ref": "#/$defs/deviceId"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.cancel"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "threadId",
+            "operationId"
+          ],
+          "properties": {
+            "threadId": {
+              "$ref": "#/$defs/id"
+            },
+            "operationId": {
+              "$ref": "#/$defs/deviceId"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.reviewer.register"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "threadId",
+            "publicKey"
+          ],
+          "properties": {
+            "threadId": {
+              "$ref": "#/$defs/id"
+            },
+            "publicKey": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.approval.challenge"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "threadId",
+            "approvalId",
+            "transactionId"
+          ],
+          "properties": {
+            "threadId": {
+              "$ref": "#/$defs/id"
+            },
+            "approvalId": {
+              "$ref": "#/$defs/deviceId"
+            },
+            "transactionId": {
+              "$ref": "#/$defs/deviceId"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.approval.decide"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "threadId",
+            "approvalId",
+            "transactionId",
+            "decision",
+            "challengeId",
+            "signature"
+          ],
+          "properties": {
+            "threadId": {
+              "$ref": "#/$defs/id"
+            },
+            "approvalId": {
+              "$ref": "#/$defs/deviceId"
+            },
+            "transactionId": {
+              "$ref": "#/$defs/deviceId"
+            },
+            "decision": {
+              "enum": [
+                "accept",
+                "decline"
+              ]
+            },
+            "challengeId": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/deviceId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "signature": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.approval.challenge.response"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "transactionId",
+            "message",
+            "expiresAt"
+          ],
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/deviceId"
+            },
+            "transactionId": {
+              "$ref": "#/$defs/deviceId"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8192
+            },
+            "expiresAt": {
+              "$ref": "#/$defs/date"
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.error"
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        }
+      }
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "control.status.response"
+        },
+        "payload": {
+          "$ref": "#/$defs/controlStatus"
+        }
+      }
     }
   ],
   "$defs": {
@@ -1936,6 +2254,249 @@
           "type": "string",
           "format": "date-time",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+        }
+      }
+    },
+    "controlOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "state",
+        "turnId",
+        "expiresAt",
+        "text"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/deviceId"
+        },
+        "kind": {
+          "enum": [
+            "interrupt",
+            "queue",
+            "deny"
+          ]
+        },
+        "state": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "turnId": {
+          "$ref": "#/$defs/id"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/date"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      }
+    },
+    "approvalReview": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "requestId",
+        "turnId",
+        "itemId",
+        "category",
+        "preview",
+        "reason",
+        "scope",
+        "risk",
+        "status",
+        "serverConfirmed",
+        "createdAt",
+        "expiresAt",
+        "allowedDecisions"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/deviceId"
+        },
+        "requestId": {
+          "$ref": "#/$defs/id"
+        },
+        "turnId": {
+          "$ref": "#/$defs/id"
+        },
+        "itemId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "preview": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "risk": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "accepted",
+            "declined",
+            "expired",
+            "unavailable",
+            "resolved"
+          ]
+        },
+        "serverConfirmed": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/date"
+        },
+        "expiresAt": {
+          "$ref": "#/$defs/date"
+        },
+        "allowedDecisions": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "enum": [
+              "accept",
+              "decline"
+            ]
+          }
+        }
+      }
+    },
+    "controlStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "threadId",
+        "project",
+        "mode",
+        "task",
+        "progress",
+        "operations",
+        "approvals",
+        "reviewer"
+      ],
+      "properties": {
+        "threadId": {
+          "$ref": "#/$defs/id"
+        },
+        "project": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "mode": {
+          "enum": [
+            "mock",
+            "real"
+          ]
+        },
+        "task": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "status",
+                "result"
+              ],
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/id"
+                },
+                "status": {
+                  "enum": [
+                    "starting",
+                    "running",
+                    "awaitingApproval",
+                    "completed",
+                    "failed",
+                    "interrupted",
+                    "unknown"
+                  ]
+                },
+                "result": {
+                  "type": "string",
+                  "maxLength": 16000
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "progress": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "operations": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/controlOperation"
+          }
+        },
+        "approvals": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "$ref": "#/$defs/approvalReview"
+          }
+        },
+        "reviewer": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "fingerprint",
+                "trusted"
+              ],
+              "properties": {
+                "fingerprint": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "trusted": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     }

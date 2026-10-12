@@ -18,12 +18,15 @@ import { SpeechSessionCoordinator } from '../src/speech/SpeechSessionCoordinator
 import { WhisperCppEngine } from '../src/speech/SpeechRecognitionEngine.js';
 import { VoiceConversationController } from '../src/conversation/VoiceConversationController.js';
 import { SubmissionLedger } from '../src/conversation/SubmissionLedger.js';
+import {TaskControl} from '../src/control/TaskControl.js';
 
 const real = process.env.CODEX_VOICE_DEVICE_REAL === '1';
 const push = process.env.CODEX_VOICE_DEVICE_PUSH === '1';
 const callSupport = process.env.CODEX_VOICE_DEVICE_CALL === '1';
 const speechSupport = process.env.CODEX_VOICE_DEVICE_SPEECH === '1';
 const conversationSupport=process.env.CODEX_VOICE_DEVICE_CONVERSATION==='1';
+const controlSupport=process.env.CODEX_VOICE_DEVICE_CONTROLS==='1';
+if(controlSupport&&real)throw new Error('Step 9 physical controls fixture is simulated only');
 if (real && push && !conversationSupport) throw new Error('Real push requires the explicitly authorized voice fixture');
 const directory = resolve('.runtime', real ? 'device-verification-real' : 'device-verification'); mkdirSync(directory, { recursive: true });
 const metadata = join(directory, 'fixture.json'), control = join(directory, 'control.txt');
@@ -37,10 +40,12 @@ let bridge!: Bridge, remote!: RemoteServer, dispatcher: NotificationDispatcher |
 let calls: CallSessionManager | undefined, coordinator: CallEventCoordinator | undefined, media: MediaTransportServer | undefined;
 let speech: SpeechSessionCoordinator | undefined;
 let conversation:VoiceConversationController|undefined;let voiceTurnStarts=0;
+let controls:TaskControl|undefined;let fixtureTransport:MockTransport|undefined;
 let closing = false, busy = false;
 async function start() {
   const realDirectory = resolve('.runtime', 'real-test');
   const transport = real ? new CodexProcessManager(await resolveCodex(), realDirectory) : new MockTransport(undefined, 150);
+  fixtureTransport=transport instanceof MockTransport?transport:undefined;
   if(real && conversationSupport) {
     if(existsSync(join(directory,'voice-inference-used.json')))throw new Error('Real voice inference already attempted; inspect the receipt before any further allowance use');
     const originalWrite=transport.write.bind(transport);
@@ -64,13 +69,15 @@ async function start() {
     coordinator = new CallEventCoordinator(bridge, registry, calls);
     if (speechSupport) speech = new SpeechSessionCoordinator(calls, bridge, new WhisperCppEngine(resolve('.')));
     if(conversationSupport && speech) {
-      conversation=new VoiceConversationController(bridge,calls,new SubmissionLedger(new WindowsRegistryStorage(join(directory,'registry'),'submissions.dpapi')));
+      const ledger=new SubmissionLedger(new WindowsRegistryStorage(join(directory,'registry'),'submissions.dpapi'));
+      if(controlSupport)controls=new TaskControl(bridge,ledger,new WindowsRegistryStorage(join(directory,'registry'),'controls.dpapi'),id=>registry.hasDevice(id));
+      conversation=new VoiceConversationController(bridge,calls,ledger,Date.now,controls);
       speech.onTranscription((call,utterance)=>{void conversation!.transcription(call,utterance);});
     }
     media = new MediaTransportServer(calls, endpoint!, (call, pcm, level) => speech?.frame(call, pcm, level));
   }
   remote = new RemoteServer(bridge, registry, endpoint!, port, 15000, 20000,
-    dispatcher ? { registry, dispatcher, projectId: process.env.CODEX_VOICE_FIREBASE_PROJECT_ID } : undefined, calls && media ? { manager: calls, media, ...(speech ? { speech } : {}),...(conversation?{conversation}:{}) } : undefined); await remote.start();
+    dispatcher ? { registry, dispatcher, projectId: process.env.CODEX_VOICE_FIREBASE_PROJECT_ID } : undefined, calls && media ? { manager: calls, media, ...(speech ? { speech } : {}),...(conversation?{conversation}:{}) } : undefined,controls); await remote.start();
   const prior = real ? bridge.threads.list().find(t => t.label === 'Step 2 controlled connection test') : bridge.threads.list().at(-1);
   if (real && !prior) throw new Error('Existing controlled real thread required; no inference will be submitted');
   threadId = prior ? prior.id : await bridge.create(directory, 'Physical device verification (simulated)');
@@ -79,7 +86,7 @@ async function start() {
 async function close() {
   if (closing) return; closing = true; clearInterval(poll);
   for (const device of registry.list()) { registry.revoke(device.id); remote.revoke(device.id); }
-  conversation?.close();coordinator?.close(); await speech?.close(); await remote.close(); calls?.close(); await dispatcher?.close(); await bridge.close();
+  controls?.close();conversation?.close();coordinator?.close(); await speech?.close(); await remote.close(); calls?.close(); await dispatcher?.close(); await bridge.close();
   for (const path of [metadata, control]) if (existsSync(path)) rmSync(path);
 }
 await start();
@@ -93,6 +100,7 @@ const poll = setInterval(() => {
       connectedDevices: remote.connectedDevices, registration: registry.list().map(d => ({ ...registry.pushState(d.id), fidHash: registry.pushTargets().find(t => t.id === d.id)?.fid ? createHash('sha256').update(registry.pushTargets().find(t => t.id === d.id)!.fid).digest('hex') : null })),
       deliveries: registry.list().flatMap(d => dispatcher?.store.diagnostics(d.id) ?? []),
       voiceTurnStarts,voiceSubmissionCount:conversation?.ledger.list().length??0,voiceSubmissionState:conversation?.ledger.list().at(-1)?.state??null,
+      ...(controls?{taskTurnStarts:fixtureTransport?.sent.filter(m=>m.method==='turn/start').length??0,controls:registry.list().map(d=>{try{return controls!.status(d.id,threadId);}catch{return null;}})}:{}),
       ...(calls && media ? { calls: calls.diagnostics(), media: media.diagnostics(), mediaConnected: media.connected } : {}) }), { mode: 0o600 });
   }
   if (busy || closing || !existsSync(control)) return;
@@ -111,6 +119,15 @@ const poll = setInterval(() => {
       case 'waiting': await bridge.send(threadId, '[mock:wait]'); break;
       case 'interrupt': { const turn = bridge.turns.active(threadId); if (turn) await bridge.turns.interrupt(threadId, turn.id); break; }
       case 'approval': await bridge.send(threadId, '[mock:approval]'); break;
+      case 'approval-reviewed': {
+        if(!controls||!controlSupport)throw new Error('Simulated controls fixture only');
+        await bridge.send(threadId,'[mock:approval]');await new Promise(r=>setTimeout(r,200));
+        const a=bridge.approvals.list().find(r=>r.threadId===threadId);if(!a)throw new Error('Simulated approval missing');
+        bridge.approvals.nominate(a.id,bridge.threads.get(threadId).cwd);
+        // Test-only trust of the normal installed app's enrolled key. Production requires CLI comparison.
+        for(const reviewer of controls.reviewerList())controls.trust(reviewer.deviceId,reviewer.fingerprint);break;
+      }
+      case 'finish-waiting': {const turn=bridge.turns.active(threadId);if(!controlSupport||!fixtureTransport||!turn)throw new Error('Simulated active turn required');fixtureTransport.finishFixtureTurn(threadId,turn.id);break;}
       case 'decline': for (const approval of bridge.approvals.list()) if (approval.status === 'pending') bridge.approvals.resolve(approval.id, false); break;
       case 'restart': coordinator?.close(); await speech?.close(); await remote.close(); calls?.close(); await dispatcher?.close(); await bridge.close(); await start(); break;
       case 'offline': await remote.close(); break;
