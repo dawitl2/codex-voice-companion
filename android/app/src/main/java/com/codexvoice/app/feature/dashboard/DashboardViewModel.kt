@@ -25,6 +25,7 @@ class DashboardViewModel(
     private val notifications: NotificationController? = null,
     private val liveCalls: LiveCallController? = null,
     private val speech: SpeechSessionController? = null,
+    private val controls:com.codexvoice.app.core.control.TaskControlController?=null,
 ) : ViewModel() {
     private val basicDashboard = combine(tasks.current, tasks.history, tasks.connection) { task, history, connection ->
         DashboardState(task, sortedHistory(history), connection)
@@ -42,6 +43,17 @@ class DashboardViewModel(
     val callSettingsStatus = liveCalls?.status ?: MutableStateFlow("Call invitations disabled").asStateFlow()
     val speechState = SpeechRuntime.state
     val conversationState=com.codexvoice.app.core.conversation.ConversationRuntime.state
+    val controlState=controls?.state?:MutableStateFlow(com.codexvoice.app.core.control.ControlState()).asStateFlow()
+    fun openControls(id:String){controls?.open(id)}
+    fun hideControls(){controls?.hide()}
+    fun interruptTask(){controls?.interrupt()}
+    fun queueTask(text:String){controls?.queue(text)}
+    fun confirmControl(id:String){controls?.confirm(id)}
+    fun cancelControl(id:String){controls?.cancel(id)}
+    fun denyApproval(a:com.codexvoice.app.core.control.ApprovalReview){controls?.deny(a)}
+    fun registerReviewer(){controls?.register()}
+    fun approveOnce(a:com.codexvoice.app.core.control.ApprovalReview){controls?.approve(a)}
+    fun authorizedApproval(c:com.codexvoice.app.core.control.ApprovalChallenge,s:String?){controls?.authorized(c,s)}
     fun confirmVoice(id:String){speech?.confirmProposal(id)}
     fun cancelVoice(id:String){speech?.cancelProposal(id)}
     fun correctVoice(id:String,text:String){speech?.correctProposal(id,text)}
@@ -85,7 +97,7 @@ class DashboardViewModel(
     fun disconnectPc() { (tasks as? CompanionTaskRepository)?.disconnect() }
     fun forgetPc() { (tasks as? CompanionTaskRepository)?.forget() }
     fun refreshPc() { (tasks as? CompanionTaskRepository)?.refresh() }
-    override fun onCleared() { speech?.close(); (tasks as? CompanionTaskRepository)?.close(); super.onCleared() }
+    override fun onCleared() { controls?.close();speech?.close(); (tasks as? CompanionTaskRepository)?.close(); super.onCleared() }
     fun setTheme(mode: ThemeMode) = save { settings.setTheme(mode) }
     fun setCalling(completion: Boolean, failure: Boolean, approval: Boolean) =
         save { settings.setCalling(completion, failure, approval) }

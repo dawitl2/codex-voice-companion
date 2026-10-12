@@ -32,7 +32,7 @@ import kotlinx.coroutines.delay
     onEnd: () -> Unit, onMute: () -> Unit, onSpeaker: () -> Unit, onTone: () -> Unit,
     onReturn: () -> Unit, onResults: () -> Unit, onPermissions: () -> Unit, ringEnabled: Boolean = false,
     speech: SpeechUiState = SpeechUiState(), onRepeat: () -> Unit = {}, onStopSpeech: () -> Unit = {}, onFinishSpeech: () -> Unit = {},
-    conversation:ConversationState=ConversationState(),onConfirm:(String)->Unit={},onCancel:(String)->Unit={},onCorrect:(String,String)->Unit={_,_->},onSelect:(String)->Unit={}) {
+    conversation:ConversationState=ConversationState(),onConfirm:(String)->Unit={},onCancel:(String)->Unit={},onCorrect:(String,String)->Unit={_,_->},onSelect:(String)->Unit={},onControls:()->Unit={}) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val ringer = remember(state.offer?.callId) { IncomingCallRinger(context, state.offer?.expiresAt ?: 0) }
@@ -83,6 +83,7 @@ import kotlinx.coroutines.delay
             Spacer(Modifier.height(12.dp))
             Text(if (state.offer?.mode == "mock") "Simulated task · Audio only" else "Private audio", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(if(conversation.enabled)"Voice instructions need confirmation" else "Local speech", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if(state.phase==LivePhase.ACTIVE)TextButton(onControls){Text("Task controls")}
             if (state.problem.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
                 Text(state.problem, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)

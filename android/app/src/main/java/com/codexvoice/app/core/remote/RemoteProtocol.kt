@@ -10,6 +10,7 @@ import java.util.UUID
 import com.codexvoice.app.core.calls.CallWire
 import com.codexvoice.app.core.speech.SpeechWire
 import com.codexvoice.app.core.conversation.ConversationWire
+import com.codexvoice.app.core.control.ControlWire
 
 data class RemoteThread(val id: String, val label: String, val project: String, val status: String)
 data class RemoteTurn(val id: String, val threadId: String, val status: String, val startedAt: Long, val finishedAt: Long?)
@@ -21,7 +22,7 @@ data class ServerMessage(val type: String, val id: String, val correlationId: St
 class RemoteProtocolException(val reason: String) : Exception(reason)
 
 object RemoteProtocol {
-    private val gson = GsonBuilder().setStrictness(Strictness.STRICT).create()
+    private val gson = GsonBuilder().setStrictness(Strictness.STRICT).serializeNulls().create()
     val snapshotTypes = setOf("state.snapshot", "thread.list.response", "task.history.response", "connection.status",
         "turn.progress", "turn.completed", "turn.failed", "turn.interrupted", "approval.pending")
     private val eventTypes = setOf("bridge.connected", "bridge.disconnected", "thread.created", "thread.resumed", "turn.started",
@@ -46,7 +47,8 @@ object RemoteProtocol {
             val correlation = nullableString(root, "correlationId", 128)
             val p = root.getAsJsonObject("payload") ?: error("payload")
             val snapshot = if (type in snapshotTypes) snapshot(p) else {
-                if (type.startsWith("call.")) CallWire.validateResponse(type, p)
+                if(type.startsWith("control."))ControlWire.validate(type,p)
+                else if (type.startsWith("call.")) CallWire.validateResponse(type, p)
                 else if (type.startsWith("speech.")) SpeechWire.validate(type, p)
                 else if (type.startsWith("conversation.")) ConversationWire.validate(type, p)
                 else when (type) {

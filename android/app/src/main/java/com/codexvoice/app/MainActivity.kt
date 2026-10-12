@@ -39,7 +39,8 @@ class MainActivity : ComponentActivity() {
                 val preferences = DataStorePreferencesRepository(applicationContext.preferencesStore)
                 return DashboardViewModel(repository, preferences, notifications = NotificationController(applicationContext, client, preferences, remoteScope),
                     liveCalls = LiveCallController(applicationContext, client, preferences, remoteScope),
-                    speech = SpeechSessionController(applicationContext, client, preferences, remoteScope)) as T
+                    speech = SpeechSessionController(applicationContext, client, preferences, remoteScope),
+                    controls=com.codexvoice.app.core.control.TaskControlController(client,remoteScope)) as T
             }
         }
         setContent {

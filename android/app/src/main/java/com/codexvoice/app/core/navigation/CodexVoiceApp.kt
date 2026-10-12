@@ -55,6 +55,9 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
     val callSettingsStatus by viewModel.callSettingsStatus.collectAsStateWithLifecycle()
     val speechState by viewModel.speechState.collectAsStateWithLifecycle()
     val conversationState by viewModel.conversationState.collectAsStateWithLifecycle()
+    val controlState by viewModel.controlState.collectAsStateWithLifecycle()
+    var controlsOpen by remember{mutableStateOf(false)}
+    val openControls={val id=conversationState.selection?.threadId?:dashboard.remote?.snapshot?.selectedThreadId?:dashboard.remote?.snapshot?.threads?.firstOrNull()?.id;if(id!=null){viewModel.openControls(id);controlsOpen=true}}
     val context = LocalContext.current
     var pendingEnable by remember { mutableStateOf(false) }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -111,7 +114,7 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))) },
                 ringEnabled = prefs.notificationsEnabled && prefs.notificationSound, speech = speechState,
                 onRepeat = viewModel::repeatSummary, onStopSpeech = viewModel::stopSpeaking, onFinishSpeech = viewModel::finishSpeaking,
-                conversation=conversationState,onConfirm=viewModel::confirmVoice,onCancel=viewModel::cancelVoice,onCorrect=viewModel::correctVoice,onSelect=viewModel::selectVoiceThread)
+                conversation=conversationState,onConfirm=viewModel::confirmVoice,onCancel=viewModel::cancelVoice,onCorrect=viewModel::correctVoice,onSelect=viewModel::selectVoiceThread,onControls=openControls)
         } else if (notification.alert != null) {
             BackHandler { viewModel.dismissNotification() }
             TaskAlertScreen(notification, dashboard.remote, viewModel::viewNotificationResults, viewModel::dismissNotification, viewModel::connectPc)
@@ -145,7 +148,7 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding),
                     enterTransition = { fadeIn(tween(if (reduceMotion) 0 else 180)) },
                     exitTransition = { fadeOut(tween(if (reduceMotion) 0 else 120)) }) {
-                    composable("home") { DashboardScreen(dashboard, reduceMotion, viewModel::previewCall, { navigate("history") }, { navigate("settings") }, viewModel::openLiveCall) }
+                    composable("home") { DashboardScreen(dashboard, reduceMotion, viewModel::previewCall, { navigate("history") }, { navigate("settings") }, viewModel::openLiveCall,openControls) }
                     composable("history") { HistoryScreen(dashboard.history, reduceMotion, viewModel::clearHistory, viewModel::resetDemo, dashboard.demoMode, dashboard.connection, dashboard.remote?.snapshot?.mode == "mock") }
                     composable("settings") { SettingsScreen(prefs, viewModel::setTheme, viewModel::setCalling, viewModel::setReduceMotion,
                         dashboard.remote, dashboard.demoMode, viewModel::selectDemo, viewModel::pair, viewModel::connectPc, viewModel::disconnectPc, viewModel::forgetPc,
@@ -155,6 +158,9 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 }
             }
         }
+        if(controlsOpen)com.codexvoice.app.feature.control.TaskControlSheet(controlState,dashboard.remote?.snapshot?.threads?:emptyList(),viewModel::openControls,
+            {controlsOpen=false;viewModel.hideControls()},viewModel::interruptTask,viewModel::queueTask,viewModel::confirmControl,viewModel::cancelControl,
+            viewModel::denyApproval,viewModel::registerReviewer,viewModel::approveOnce,viewModel::authorizedApproval)
         if (error != null) AlertDialog(onDismissRequest = viewModel::dismissError, title = { Text("Preference not saved") },
             text = { Text(error!!) }, confirmButton = { TextButton(viewModel::dismissError) { Text("OK") } })
     }

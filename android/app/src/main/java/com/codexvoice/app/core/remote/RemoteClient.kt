@@ -18,6 +18,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     private val mutableCalls = MutableSharedFlow<ServerMessage>(extraBufferCapacity = 32); val calls = mutableCalls.asSharedFlow()
     private val mutableSpeech = MutableSharedFlow<ServerMessage>(extraBufferCapacity = 32); val speech = mutableSpeech.asSharedFlow()
     private val mutableConversation = MutableSharedFlow<ServerMessage>(extraBufferCapacity = 32); val conversation = mutableConversation.asSharedFlow()
+    private val mutableControls=MutableSharedFlow<ServerMessage>(extraBufferCapacity=32);val controls=mutableControls.asSharedFlow()
     private val notificationPending = mutableMapOf<String, String>()
     private val queue = Channel<() -> Unit>(64)
     @Volatile private var closed = false
@@ -78,6 +79,8 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         post {
         if (!authenticated || notificationPending.size >= 32) return@post
         val expected = when (type) {
+            "control.status.request","control.interrupt.propose","control.queue.propose","control.deny.propose","control.confirm","control.cancel","control.reviewer.register","control.approval.decide" -> "control.status.response"
+            "control.approval.challenge" -> "control.approval.challenge.response"
             "notification.register", "notification.preferences.update", "notification.status.request" -> "notification.status.response"
             "notification.event.request" -> "notification.event.response"
             "notification.receipt" -> "notification.receipt.response"
@@ -96,6 +99,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     fun call(type: String, payload: Map<String, Any> = emptyMap()): String = notification(type, payload)
     fun speech(type: String, payload: Map<String, Any> = emptyMap()): String = notification(type, payload)
     fun conversation(type: String, payload: Map<String, Any> = emptyMap()): String = notification(type, payload)
+    fun control(type:String,payload:Map<String,Any> = emptyMap()):String=notification(type,payload)
     fun close() { closed = true; desired = false; generation++; socket?.close(); timeout?.cancel(); retry?.cancel(); heartbeat?.cancel(); queue.close() }
     private fun update(status: RemoteStatus, problem: String = "") {
         mutableState.value = mutableState.value.copy(status = status, problem = problem, paired = credential != null, enabled = credential?.enabled == true)
@@ -139,11 +143,11 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     private fun receive(raw: String) {
         try {
             val m = RemoteProtocol.parse(raw)
-            if (m.type.startsWith("notification.") || m.type.startsWith("call.") || m.type.startsWith("speech.") || m.type.startsWith("conversation.")) {
+            if (m.type.startsWith("control.") || m.type.startsWith("notification.") || m.type.startsWith("call.") || m.type.startsWith("speech.") || m.type.startsWith("conversation.")) {
                 check(authenticated)
                 val expected = notificationPending.remove(m.correlationId) ?: error("Uncorrelated notification response")
-                check(m.type == expected || (m.type == "notification.error" && expected.startsWith("notification.")) || (m.type == "call.error" && expected.startsWith("call.")) || (m.type == "speech.error" && expected.startsWith("speech.")) || (m.type == "conversation.error" && expected.startsWith("conversation.")))
-                if(m.type.startsWith("conversation."))mutableConversation.tryEmit(m) else if (m.type.startsWith("speech.")) mutableSpeech.tryEmit(m) else if (m.type.startsWith("call.")) mutableCalls.tryEmit(m) else mutableNotifications.tryEmit(m); return
+                check(m.type == expected || (m.type=="control.error"&&expected.startsWith("control.")) || (m.type == "notification.error" && expected.startsWith("notification.")) || (m.type == "call.error" && expected.startsWith("call.")) || (m.type == "speech.error" && expected.startsWith("speech.")) || (m.type == "conversation.error" && expected.startsWith("conversation.")))
+                if(m.type.startsWith("control."))mutableControls.tryEmit(m) else if(m.type.startsWith("conversation."))mutableConversation.tryEmit(m) else if (m.type.startsWith("speech.")) mutableSpeech.tryEmit(m) else if (m.type.startsWith("call.")) mutableCalls.tryEmit(m) else mutableNotifications.tryEmit(m); return
             }
             when (m.type) {
                 "server.hello" -> {
