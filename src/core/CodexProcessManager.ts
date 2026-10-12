@@ -4,6 +4,7 @@ import { promisify } from 'node:util';
 import { existsSync, readdirSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { RpcTransport } from '../types/index.js';
 import { isolatedOverrides, safeChildEnvironment } from '../config/settings.js';
 import { sanitize } from '../utils/safe.js';
@@ -13,6 +14,10 @@ export async function resolveCodex(explicit = process.env.CODEX_VOICE_CODEX_PATH
   const candidates: string[] = [];
   if (explicit) candidates.push(resolve(explicit));
   else {
+    // Desktop/IDE updates can remove the previously verified executable. An explicitly
+    // installed project-local pinned runtime survives those updates, with the same gate.
+    const root = fileURLToPath(new URL('../../../', import.meta.url));
+    candidates.push(join(root, '.cache', 'codex-runtime', 'node_modules', '@openai', 'codex-win32-x64', 'vendor', 'x86_64-pc-windows-msvc', 'bin', 'codex.exe'));
     const extensions = join(homedir(), '.vscode', 'extensions');
     if (existsSync(extensions)) for (const folder of readdirSync(extensions).filter(x => /^openai\.chatgpt-/.test(x)).sort().reverse()) candidates.push(join(extensions, folder, 'bin', 'windows-x86_64', 'codex.exe'));
     for (const directory of (process.env.PATH || '').split(delimiter)) candidates.push(join(directory, process.platform === 'win32' ? 'codex.exe' : 'codex'));
