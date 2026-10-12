@@ -14,10 +14,14 @@ import com.codexvoice.app.feature.dashboard.DashboardViewModel
 import com.codexvoice.app.core.data.CompanionTaskRepository
 import com.codexvoice.app.core.remote.*
 import kotlinx.coroutines.*
+import com.codexvoice.app.core.notifications.NotificationController
+import com.codexvoice.app.core.notifications.TaskNotifications
+import android.content.Intent
 
 private val android.content.Context.preferencesStore by preferencesDataStore(name = "user_preferences")
 
 class MainActivity : ComponentActivity() {
+    private var dashboardModel: DashboardViewModel? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -30,12 +34,16 @@ class MainActivity : ComponentActivity() {
                 val client = RemoteClient(remoteScope, OkHttpSocketFactory(), KeystoreCredentialStore(applicationContext))
                 val repository = CompanionTaskRepository(client, remoteScope, connectionPrefs.getBoolean("demo", false),
                     { value -> if (!connectionPrefs.edit().putBoolean("demo", value).commit()) throw java.io.IOException("Could not save mode") })
-                return DashboardViewModel(repository, DataStorePreferencesRepository(applicationContext.preferencesStore)) as T
+                val preferences = DataStorePreferencesRepository(applicationContext.preferencesStore)
+                return DashboardViewModel(repository, preferences, notifications = NotificationController(applicationContext, client, preferences, remoteScope)) as T
             }
         }
         setContent {
             val dashboard: DashboardViewModel = viewModel(factory = factory)
+            dashboardModel = dashboard
+            androidx.compose.runtime.LaunchedEffect(dashboard) { intent.getStringExtra(TaskNotifications.EXTRA_EVENT)?.let(dashboard::openNotification) }
             CodexVoiceApp(dashboard)
         }
     }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); intent.getStringExtra(TaskNotifications.EXTRA_EVENT)?.let { dashboardModel?.openNotification(it) } }
 }

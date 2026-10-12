@@ -3,6 +3,7 @@ import type { DeviceRegistry } from '../remote/DeviceRegistry.js';
 import type { BridgeEvent } from '../types/index.js';
 import { eligible, pushPayload, type NotificationEvent, type PushPayload } from './NotificationPolicy.js';
 import { NotificationDeliveryStore, type Delivery, type Receipt } from './NotificationDeliveryStore.js';
+import { sanitize } from '../utils/safe.js';
 
 export interface PushProvider { send(fid: string, payload: PushPayload, ttlMs: number): Promise<void>; close?(): Promise<void> }
 export class PushFailure extends Error { constructor(readonly code: 'unregistered' | 'temporary' | 'configuration' | 'invalid_payload') { super(code); } }
@@ -55,11 +56,12 @@ export class NotificationDispatcher {
       }
     }
   }
-  event(deviceId: string, eventId: string): NotificationEvent & { approvalStatus: string | null; expired: boolean } {
+  event(deviceId: string, eventId: string): NotificationEvent & { approvalStatus: string | null; expired: boolean; result: string | null } {
     const row = this.store.find(deviceId, eventId); if (!row) throw new Error('unknown_event');
     const approval = row.approvalId ? this.bridge.store.state.approvals.find(a => a.id === row.approvalId) : undefined;
     return { eventId: row.eventId, threadId: row.threadId, turnId: row.turnId, kind: row.kind, mode: row.mode, occurredAt: row.occurredAt, expiresAt: row.expiresAt,
-      approvalStatus: approval ? (Date.parse(approval.expiresAt) <= this.now() && approval.status === 'pending' ? 'expired' : approval.status) : null, expired: Date.parse(row.expiresAt) <= this.now() };
+      approvalStatus: approval ? (Date.parse(approval.expiresAt) <= this.now() && approval.status === 'pending' ? 'expired' : approval.status) : null, expired: Date.parse(row.expiresAt) <= this.now(),
+      result: this.bridge.available ? sanitize(this.bridge.store.state.turns.find(t => t.id === row.turnId && t.threadId === row.threadId)?.finalResponse ?? '', 16000) || null : null };
   }
   receipt(deviceId: string, eventId: string, stage: Receipt): void { this.store.receipt(deviceId, eventId, stage, this.now()); }
   async drain(): Promise<void> { await Promise.all([...this.pending]); }

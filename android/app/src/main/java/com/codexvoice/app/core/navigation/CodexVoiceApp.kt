@@ -25,6 +25,12 @@ import com.codexvoice.app.feature.call.*
 import com.codexvoice.app.feature.dashboard.*
 import com.codexvoice.app.feature.history.HistoryScreen
 import com.codexvoice.app.feature.settings.SettingsScreen
+import com.codexvoice.app.core.notifications.*
+import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.os.Build
 
 private data class Destination(val route: String, val title: String, val icon: ImageVector)
 private val destinations = listOf(Destination("home", "Home", Icons.Default.Home),
@@ -35,13 +41,26 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
     val prefs by viewModel.preferences.collectAsStateWithLifecycle()
     val call by viewModel.call.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val notification by viewModel.notificationState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var pendingEnable by remember { mutableStateOf(false) }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        if (pendingEnable) viewModel.setNotifications(prefs.copy(notificationsEnabled = true))
+        pendingEnable = false; viewModel.notificationSystemChanged()
+    }
+    val changeNotifications: (com.codexvoice.app.core.model.UserPreferences) -> Unit = { value ->
+        val asked = context.getSharedPreferences("notification-permission", android.content.Context.MODE_PRIVATE)
+        if (value.notificationsEnabled && !prefs.notificationsEnabled && Build.VERSION.SDK_INT >= 33 && !TaskNotifications.permission(context) && !asked.getBoolean("asked", false)) {
+            if (asked.edit().putBoolean("asked", true).commit()) { pendingEnable = true; permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+        } else viewModel.setNotifications(value)
+    }
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val reduceMotion = prefs.reduceMotion || !ValueAnimator.areAnimatorsEnabled()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, viewModel, dashboard.demoMode) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START) viewModel.foreground(true)
+            if (event == Lifecycle.Event.ON_START) { viewModel.foreground(true); viewModel.notificationSystemChanged() }
             if (event == Lifecycle.Event.ON_STOP) viewModel.foreground(false)
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -64,7 +83,10 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 }
             }
         }
-        when (call.state) {
+        if (notification.alert != null) {
+            BackHandler { viewModel.dismissNotification() }
+            TaskAlertScreen(notification, dashboard.remote, viewModel::viewNotificationResults, viewModel::dismissNotification, viewModel::connectPc)
+        } else when (call.state) {
             CallState.INCOMING -> {
                 BackHandler { viewModel.decline() }
                 IncomingCallScreen(call.session!!, reduceMotion, viewModel::answer, viewModel::decline)
@@ -87,7 +109,9 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                     composable("home") { DashboardScreen(dashboard, reduceMotion, viewModel::previewCall, { navigate("history") }, { navigate("settings") }) }
                     composable("history") { HistoryScreen(dashboard.history, reduceMotion, viewModel::clearHistory, viewModel::resetDemo, dashboard.demoMode, dashboard.connection, dashboard.remote?.snapshot?.mode == "mock") }
                     composable("settings") { SettingsScreen(prefs, viewModel::setTheme, viewModel::setCalling, viewModel::setReduceMotion,
-                        dashboard.remote, dashboard.demoMode, viewModel::selectDemo, viewModel::pair, viewModel::connectPc, viewModel::disconnectPc, viewModel::forgetPc) }
+                        dashboard.remote, dashboard.demoMode, viewModel::selectDemo, viewModel::pair, viewModel::connectPc, viewModel::disconnectPc, viewModel::forgetPc,
+                        notification, changeNotifications, { context.startActivity(TaskNotifications.systemSettings(context)) },
+                        { attention -> context.startActivity(TaskNotifications.channelsSettings(context, attention, prefs.pushPreferences())) }) }
                 }
             }
         }

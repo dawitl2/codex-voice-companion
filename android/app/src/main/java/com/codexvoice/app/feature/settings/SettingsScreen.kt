@@ -13,12 +13,15 @@ import androidx.compose.ui.unit.dp
 import com.codexvoice.app.core.designsystem.*
 import com.codexvoice.app.core.model.*
 import com.codexvoice.app.core.remote.ClientState
+import com.codexvoice.app.core.notifications.NotificationUiState
 
 @Composable
 fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
     onCalling: (Boolean, Boolean, Boolean) -> Unit, onMotion: (Boolean) -> Unit,
     remote: ClientState? = null, demoMode: Boolean = true, onDemo: (Boolean) -> Unit = {},
-    onPair: (String, String) -> Unit = { _, _ -> }, onConnect: () -> Unit = {}, onDisconnect: () -> Unit = {}, onForget: () -> Unit = {}) {
+    onPair: (String, String) -> Unit = { _, _ -> }, onConnect: () -> Unit = {}, onDisconnect: () -> Unit = {}, onForget: () -> Unit = {},
+    notificationState: NotificationUiState = NotificationUiState(), onNotifications: (UserPreferences) -> Unit = {}, onSystemSettings: () -> Unit = {},
+    onChannelSettings: (Boolean) -> Unit = {}) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
         item { ScreenHeading("Settings", "Make room for your preferences.") }
         item { Eyebrow("Appearance") }
@@ -41,13 +44,22 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
                 Text("This device: Android ${android.os.Build.VERSION.RELEASE}", style = MaterialTheme.typography.bodyMedium)
             }
         }
-        item { Eyebrow("Calling preferences") }
+        item { Eyebrow("Task notifications") }
         item {
             SettingsSurface {
-                Text("Saved locally for future calls. Explicit demo previews always open a call.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                PreferenceSwitch("Task completion", "Call when a turn completes.", p.callOnCompletion) { onCalling(it, p.callOnFailure, p.callOnApproval) }
-                PreferenceSwitch("Task failure", "Call when a turn fails.", p.callOnFailure) { onCalling(p.callOnCompletion, it, p.callOnApproval) }
-                PreferenceSwitch("Approval needed", "Call when permission is requested.", p.callOnApproval) { onCalling(p.callOnCompletion, p.callOnFailure, it) }
+                Text(notificationState.status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (notificationState.pending) "PC settings: pending synchronization" else "PC settings: synchronized", style = MaterialTheme.typography.bodySmall)
+                PreferenceSwitch("Enable notifications", "Receive task alerts through Firebase while the app is closed.", p.notificationsEnabled) { onNotifications(p.copy(notificationsEnabled = it)) }
+                PreferenceSwitch("Task completion", "Alert when a turn completes.", p.callOnCompletion) { onCalling(it, p.callOnFailure, p.callOnApproval) }
+                PreferenceSwitch("Task failure", "Alert when a turn fails.", p.callOnFailure) { onCalling(p.callOnCompletion, it, p.callOnApproval) }
+                PreferenceSwitch("Task interrupted", "Alert when a turn is interrupted.", p.alertOnInterruption) { onNotifications(p.copy(alertOnInterruption = it)) }
+                PreferenceSwitch("Approval needed", "Alert when permission needs attention on the PC.", p.callOnApproval) { onCalling(p.callOnCompletion, p.callOnFailure, it) }
+                PreferenceSwitch("Notification sound", "Use the Android notification sound; system settings take precedence.", p.notificationSound) { onNotifications(p.copy(notificationSound = it)) }
+                PreferenceSwitch("Notification vibration", "Use a short vibration where supported.", p.notificationVibration) { onNotifications(p.copy(notificationVibration = it)) }
+                Text("Task alerts use Android channels. Sound/vibration changes choose a channel for future alerts. Demo call previews remain separate.", style = MaterialTheme.typography.bodySmall)
+                TextButton(onSystemSettings) { Text("Android notification settings") }
+                TextButton({ onChannelSettings(false) }) { Text("Task outcome channel settings") }
+                TextButton({ onChannelSettings(true) }) { Text("Attention channel settings") }
             }
         }
         item { Eyebrow("Voice") }
@@ -61,8 +73,8 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
         item {
             SettingsSurface {
                 Text("Codex Voice", style = MaterialTheme.typography.titleMedium)
-                Text("Version 0.4.0 · Experimental companion")
-                Text("A private task monitor for your PC bridge, with a separate offline demo. Calling and audio are previews only.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Version 0.5.0 · Experimental companion")
+                Text("A private PC task monitor with optional Firebase alerts and a separate offline demo. Live voice arrives later.", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

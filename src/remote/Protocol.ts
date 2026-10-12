@@ -93,9 +93,10 @@ function validateServer(type: string, payload: unknown): void {
       if (typeof p.registered !== 'boolean' || typeof p.configured !== 'boolean') throw new ProtocolError('invalid_message');
       preferences(p.preferences); textField(p.diagnostic, 64); break;
     case 'notification.event.response':
-      exact(p, ['eventId','threadId','turnId','kind','mode','occurredAt','expiresAt','approvalStatus','expired']);
+      exact(p, ['eventId','threadId','turnId','kind','mode','occurredAt','expiresAt','approvalStatus','expired','result']);
       if (!/^[a-f0-9]{64}$/.test(textField(p.eventId, 64)) || typeof p.expired !== 'boolean') throw new ProtocolError('invalid_message');
       textField(p.threadId, 128); textField(p.turnId, 128); date(p.occurredAt); date(p.expiresAt); choice(p.mode, ['mock','real']); choice(p.kind, ['completed','failed','interrupted','approval']);
+      if (p.result !== null && (typeof p.result !== 'string' || p.result.length > 16000)) throw new ProtocolError('invalid_message');
       if (p.approvalStatus !== null) choice(p.approvalStatus, ['pending','accepted','declined','expired','unavailable','resolved']); break;
     case 'notification.receipt.response':
       exact(p, ['eventId','stage']); if (!/^[a-f0-9]{64}$/.test(textField(p.eventId, 64))) throw new ProtocolError('invalid_message'); choice(p.stage, ['received','posted','opened','dismissed']); break;

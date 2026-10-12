@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import java.io.IOException
 import com.codexvoice.app.core.remote.ClientState
+import com.codexvoice.app.core.notifications.*
 
 data class DashboardState(
     val current: Task? = null, val history: List<Task> = emptyList(),
@@ -19,6 +20,7 @@ class DashboardViewModel(
     private val tasks: TaskRepository,
     private val settings: PreferencesRepository,
     private val calls: CallStateMachine = CallStateMachine(),
+    private val notifications: NotificationController? = null,
 ) : ViewModel() {
     private val basicDashboard = combine(tasks.current, tasks.history, tasks.connection) { task, history, connection ->
         DashboardState(task, sortedHistory(history), connection)
@@ -31,6 +33,12 @@ class DashboardViewModel(
     val call = mutableCall.asStateFlow()
     private val mutableError = MutableStateFlow<String?>(null)
     val error = mutableError.asStateFlow()
+    val notificationState = notifications?.state ?: MutableStateFlow(NotificationUiState()).asStateFlow()
+    fun setNotifications(value: UserPreferences) = save { settings.setNotifications(value) }
+    fun openNotification(id: String) { notifications?.open(id) }
+    fun viewNotificationResults() { notifications?.viewResults() }
+    fun dismissNotification() { notifications?.dismiss() }
+    fun notificationSystemChanged() { notifications?.systemStateChanged() }
     fun previewCall(reason: CallReason) {
         if (tasks is CompanionTaskRepository && !tasks.isDemo.value) return
         if (calls.snapshot.state != CallState.IDLE) return
