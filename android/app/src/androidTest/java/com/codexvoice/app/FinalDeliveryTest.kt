@@ -31,7 +31,7 @@ class FinalDeliveryTest{
     private val context get()=instrumentation.targetContext
     private fun until(label:String,timeout:Long=45000,p:()->Boolean){val end=SystemClock.elapsedRealtime()+timeout;while(!p()){check(SystemClock.elapsedRealtime()<end){"$label timed out; call=${CallRuntime.state.value.phase}; problem=${CallRuntime.state.value.problem}"};Thread.sleep(100)};println("Verified: $label")}
     private fun text(value:String)=try{compose.onAllNodesWithText(value,substring=true).fetchSemanticsNodes().isNotEmpty()}catch(_:IllegalStateException){false}
-    private fun click(value:String)=compose.onNodeWithText(value).performClick()
+    private fun click(value:String){if(value=="Hang up")compose.onNodeWithContentDescription(value).performClick()else compose.onNodeWithText(value).performClick()}
     @Test fun realDesktopOutgoingTextCodingIncomingAndCleanup()=runBlocking{
         assumeTrue(InstrumentationRegistry.getArguments().getString("finalDelivery")=="true")
         check(!context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){"User must unlock phone"}
@@ -49,12 +49,12 @@ class FinalDeliveryTest{
                 val fixture=instrumentation.uiAutomation.executeShellCommand("cat /data/local/tmp/codex-voice-final-pair.json").use{android.os.ParcelFileDescriptor.AutoCloseInputStream(it).bufferedReader().readText()}.let{JsonParser.parseString(it).asJsonObject}
                 compose.onNode(hasText("Settings") and hasClickAction()).performClick();compose.onNode(hasScrollAction()).performScrollToNode(hasText("PC monitor"));click("PC monitor")
                 compose.onNodeWithText("Private server address").performScrollTo().performTextInput(fixture["endpoint"].asString);compose.onNodeWithText("One-time pairing code").performScrollTo().performTextInput(fixture["code"].asString);click("Pair this PC")
-            }else model.connectPc()
+            }else if(KeystoreCredentialStore(context).load()?.enabled==false)model.connectPc()
             until("Real authenticated private PC connection"){model.dashboard.value.remote?.status==RemoteStatus.CONNECTED}
             assertEquals("real",model.dashboard.value.remote?.snapshot?.mode)
             until("Selected managed coding conversation"){model.dashboard.value.remote?.snapshot?.selectedThreadId!=null}
             val thread=model.dashboard.value.remote!!.snapshot!!.selectedThreadId!!
-            compose.onNode(hasText("Home") and hasClickAction()).performClick();click("Call Codex")
+            compose.onNode(hasText("Home") and hasClickAction()).performClick();compose.waitForIdle();until("Visible authenticated Call Codex control"){compose.onAllNodes(hasText("Call Codex") and isEnabled()).fetchSemanticsNodes().isNotEmpty()};click("Call Codex")
             until("Phone-initiated private microphone audio"){CallRuntime.state.value.phase==LivePhase.ACTIVE&&CallRuntime.state.value.capturing&&ConversationRuntime.state.value.enabled}
             outgoing=true;until("Core Telecom owns this outgoing call"){TelecomRuntime.control!=null}
             until("PC receives actual outgoing microphone frames"){CallRuntime.state.value.pcReceivedFrames>=20}
