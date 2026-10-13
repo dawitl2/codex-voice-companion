@@ -19,6 +19,8 @@ android/local.properties
 *.keystore
 *.apk
 *.aab
+*.exe
+desktop/icon.ico
 captures/
 google-services.json
 service-account*.json

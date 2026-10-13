@@ -17,7 +17,7 @@ export class Bridge {
   get available(): boolean { return this.client.ready && this.verifiedConnection && !this.closed; }
   private readonly transport: RpcTransport;
   private readonly normalizer = new EventNormalizer();
-  constructor(readonly mode: Mode, transport: RpcTransport, directory: string, sandbox: Sandbox = 'read-only', timeoutMs = 30000, approvalTimeoutMs = 60000) {
+  constructor(readonly mode: Mode, transport: RpcTransport, directory: string, sandbox: Sandbox = 'read-only', timeoutMs = 30000, approvalTimeoutMs = 60000, writableProject?: string) {
     this.transport = transport;
     this.store = new JsonStore(directory, mode); this.client = new AppServerClient(transport, timeoutMs);
     const emit = (type: BridgeEvent['type'], summary: string, threadId?: string, turnId?: string, metadata?: BridgeEvent['metadata']) => {
@@ -25,7 +25,7 @@ export class Bridge {
       if (threadId) scope.threadId = threadId; if (turnId) scope.turnId = turnId; if (metadata) scope.metadata = metadata;
       const event = this.normalizer.create(type, summary, scope); this.store.state.events.push(event); this.store.save(); this.events.emit(event);
     };
-    this.threads = new ThreadManager(this.client, this.store, mode, sandbox);
+    this.threads = new ThreadManager(this.client, this.store, mode, sandbox, writableProject);
     this.turns = new TurnManager(this.client, this.threads, this.store, emit);
     this.approvals = new ApprovalManager(this.client, this.turns, this.store, emit, approvalTimeoutMs);
     this.client.onNotification = call => {

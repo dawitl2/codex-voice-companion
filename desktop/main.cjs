@@ -1,0 +1,117 @@
+const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
+const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+let window, worker, latest = { running: false, error: '', connectedPhones: 0 }, nextId = 0, pending = new Map(), stopping;
+let config, settingsPath, backend;
+const permitted = new Map(Object.entries({ state: [], start: ['writable','notifications','sparkConfirmed'], stop: [], quit: [], project: [], create: ['label'], select: ['threadId'],
+  send: ['threadId','text'], interrupt: ['threadId'], pair: [], revoke: ['deviceId'], nominate: ['approvalId'], decision: ['approvalId','accept'], trust: ['deviceId','fingerprint'] }));
+function validAction(type, value) {
+  const keys = permitted.get(type);
+  if (!keys || !value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !keys.includes(k))) throw Error('Unsupported action');
+  for (const [k,v] of Object.entries(value)) {
+    if (['writable','notifications','sparkConfirmed','accept'].includes(k)) { if (typeof v !== 'boolean') throw Error('Explicit choice required'); }
+    else if (typeof v !== 'string' || v.length > (k === 'text' ? 2000 : k === 'label' ? 80 : 128) || /[\x00-\x08\x0b-\x1f]/.test(v)) throw Error('Invalid input');
+  }
+}
+function request(type, payload = {}) {
+  if (!worker || worker.exitCode !== null) return Promise.reject(Error('Start Companion first'));
+  const id = ++nextId;
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { pending.delete(id); reject(Error('Request timed out. Inspect the current task; do not resend uncertain work.')); }, 45000);
+    pending.set(id, { resolve, reject, timer });
+    worker.stdin.write(JSON.stringify({ id, type, payload }) + '\n');
+  });
+}
+function save() { fs.mkdirSync(path.dirname(settingsPath), { recursive: true }); fs.writeFileSync(settingsPath, JSON.stringify(config)); }
+async function start(payload) {
+  if (worker) throw Error('Companion is already running or stopping');
+  config.writable = payload.writable === true; config.notifications = payload.notifications === true;
+  config.sparkConfirmed = payload.sparkConfirmed === true;
+  if (!fs.statSync(config.project).isDirectory()) throw Error('Choose an existing project folder');
+  save();
+  const runConfig = { ...config, assets: backend, codex: path.join(backend, '.cache/codex-runtime/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe') };
+  const runPath = path.join(path.dirname(settingsPath), 'active-config.json'); fs.writeFileSync(runPath, JSON.stringify(runConfig));
+  const node = app.isPackaged ? path.join(backend, 'node.exe') : path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe');
+  const script = path.join(backend, 'dist/src/desktop/worker.js');
+  latest = { running: false, starting: true, project: config.project, error: '' };
+  worker = spawn(node, [script, runPath], { cwd: backend, shell: false, windowsHide: true, stdio: ['pipe','pipe','pipe'] });
+  let buffer = '';
+  worker.stdout.setEncoding('utf8'); worker.stderr.resume(); // no raw subprocess diagnostic log or credentials
+  worker.stdout.on('data', chunk => {
+    buffer += chunk; if (buffer.length > 1048576) { worker?.kill(); return; }
+    let end; while ((end = buffer.indexOf('\n')) >= 0) {
+      const raw = buffer.slice(0, end); buffer = buffer.slice(end+1);
+      try { const m = JSON.parse(raw);
+        if (m.type === 'state') { latest = m.state; if (latest.selectedThreadId && config.selectedThreadId !== latest.selectedThreadId) { config.selectedThreadId = latest.selectedThreadId; save(); } }
+        else { const p = pending.get(m.id); if (p) { clearTimeout(p.timer); pending.delete(m.id); m.error ? p.reject(Error(m.error)) : p.resolve(m.result); } }
+      } catch { latest.error = 'Companion returned invalid state'; }
+    }
+  });
+  worker.once('error', () => { latest.error = 'Could not launch the bundled Node runtime'; });
+  worker.once('close', () => {
+    worker = undefined; latest = { running: false, connectedPhones: 0, mediaSessions: 0, error: latest.error || '', project: config.project };
+    for (const p of pending.values()) { clearTimeout(p.timer); p.reject(Error('Companion stopped; verify any uncertain task on PC')); } pending.clear();
+  });
+  try { latest = await request('start'); return latest; }
+  catch (e) { latest.error = e.message; await stop(false); throw e; }
+}
+async function stop(confirm = true) {
+  if (!worker) return;
+  if (confirm && latest.turns?.some(t => !['completed','failed','interrupted'].includes(t.status))) {
+    const { response } = await dialog.showMessageBox(window, { type: 'warning', title: 'Stop owned Codex work?',
+      message: 'STOP ALL will end calls and stop this companion’s Codex process. Its active work may be interrupted.', buttons: ['Cancel','Stop All'], defaultId: 0, cancelId: 0 });
+    if (response !== 1) return false;
+  }
+  if (stopping) return stopping;
+  stopping = (async () => {
+    const child = worker;
+    try { await request('stop'); } catch { child?.stdin.end(); }
+    if (child && child.exitCode === null) await new Promise(resolve => {
+      const timer = setTimeout(() => { child.kill(); resolve(); }, 10000);
+      child.once('close', () => { clearTimeout(timer); resolve(); });
+    });
+    latest.running = false;
+  })();
+  try { await stopping; } finally { stopping = undefined; }
+  return true;
+}
+if (!app.requestSingleInstanceLock()) app.quit();
+app.on('second-instance', () => { window?.show(); window?.focus(); });
+app.whenReady().then(() => {
+  app.setAppUserModelId('com.codexvoice.desktop');
+  backend = app.isPackaged ? path.join(__dirname, '../backend') : path.join(__dirname, '..');
+  settingsPath = path.join(app.getPath('home'), '.codex-voice/desktop/settings.json');
+  config = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf8')) : {
+    project: app.getPath('documents'), writable: false, notifications: true, sparkConfirmed: false,
+    credentialPath: path.join(app.getPath('home'), '.codex-voice/firebase/service-account.json'), data: path.join(app.getPath('home'), '.codex-voice/desktop/data') };
+  const rendererPath = path.join(__dirname, 'index.html');
+  window = new BrowserWindow({ width: 1120, height: 800, minWidth: 820, minHeight: 640, title: 'Codex Voice',
+    icon: path.join(__dirname, 'icon.ico'), backgroundColor: '#f5f5f7', autoHideMenuBar: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', e => e.preventDefault());
+  window.webContents.on('will-attach-webview', e => e.preventDefault());
+  session.defaultSession.setPermissionRequestHandler((_w, _p, done) => done(false));
+  session.defaultSession.setPermissionCheckHandler(() => false);
+  ipcMain.handle('companion-action', async (event, type, payload = {}) => {
+    if (event.sender !== window.webContents || event.senderFrame?.url !== pathToFileURL(rendererPath).href) throw Error('Untrusted caller');
+    validAction(type, payload);
+    if (type === 'state') return { ...latest, configuration: { project: config.project, writable: config.writable, notifications: config.notifications, sparkConfirmed: config.sparkConfirmed } };
+    if (type === 'project') {
+      if (worker) throw Error('Stop Companion before changing its project or execution policy');
+      const { canceled, filePaths } = await dialog.showOpenDialog(window, { title: 'Choose an authorized Codex project', properties: ['openDirectory'] });
+      if (!canceled && filePaths[0]) { config.project = fs.realpathSync(filePaths[0]); config.writable = false; save(); }
+      return { project: config.project };
+    }
+    if (type === 'start') return start(payload);
+    if (type === 'stop') return { stopped: await stop(true) };
+    if (type === 'quit') { if (await stop(true) !== false) { window.destroy(); app.quit(); } return {}; }
+    return request(type, payload);
+  });
+  let closing = false;
+  window.on('close', e => { if (!closing) { e.preventDefault(); void stop(true).then(ok => { if (ok !== false) { closing = true; window.destroy(); app.quit(); } }); } });
+  window.loadFile(rendererPath);
+});
+app.on('window-all-closed', () => app.quit());

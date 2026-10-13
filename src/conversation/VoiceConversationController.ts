@@ -39,7 +39,7 @@ export class VoiceConversationController {
     const call=this.calls.status(deviceId,callId);
     if(this.closed || call.state!=='active' || !this.connected.has(deviceId)) throw new ConversationError('call_not_active');
     let s=this.sessions.get(callId);
-    if(!s) { s={callId,deviceId,threadId:call.threadId,generation:0,phase:'ready',proposal:null,submissionId:null,entries:[],sequence:0,seen:new Set(),terminalSpoken:new Set(),error:''}; this.sessions.set(callId,s); }
+    if(!s) { s={callId,deviceId,threadId:call.threadId,generation:0,phase:'ready',proposal:null,submissionId:null,entries:[],sequence:0,seen:new Set(),terminalSpoken:new Set(this.bridge.store.state.turns.filter(t=>t.threadId===call.threadId&&terminal(t.status)).map(t=>t.id)),error:''}; this.sessions.set(callId,s); }
     return s;
   }
   private add(s:Session,text:string,kind:'system'|'codex'='system',spoken=text) {
@@ -196,6 +196,9 @@ export class VoiceConversationController {
     this.add(s,sanitize(turn.finalResponse || 'No final response is available.',16000),turn.finalResponse?'codex':'system',spokenSummary(this.selected(s),turn));
   }
   private refresh(s:Session) {
+    const call=this.calls.status(s.deviceId,s.callId);
+    const latest=this.ledger.list().filter(r=>r.deviceId===s.deviceId&&r.threadId===s.threadId&&r.turnId&&Date.parse(r.submittedAt)>=Date.parse(call.acceptedAt??call.createdAt)).at(-1);
+    if(latest && latest.id!==s.submissionId && !s.proposal) s.submissionId=latest.id;
     if(!s.submissionId) return;
     const row=this.ledger.get(s.submissionId); if(!row?.turnId) return;
     const turn=this.bridge.turns.get(row.threadId,row.turnId); if(!turn) return;

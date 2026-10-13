@@ -5,6 +5,7 @@ import { validateCallRequest, validateCallResponse, type CallRequest } from '../
 import { validateSpeechRequest, validateSpeechResponse, type SpeechRequest } from '../speech/SpeechProtocol.js';
 import { validateConversationRequest, validateConversationResponse, type ConversationRequest } from '../conversation/ConversationProtocol.js';
 import {validateControlRequest,validateControlResponse,type ControlRequest} from '../control/ControlProtocol.js';
+import {validateChatRequest,validateChatResponse} from '../conversation/ChatProtocol.js';
 
 export const VERSION = 2;
 export const CLIENT_LIMIT = 8192;
@@ -22,6 +23,7 @@ export type ClientMessage = Envelope<'client.hello', { name: string }> |
   Envelope<SpeechRequest, Record<string, unknown>> |
   Envelope<ConversationRequest, Record<string, unknown>> |
   Envelope<ControlRequest, Record<string, unknown>> |
+  Envelope<'chat.status.request' | 'chat.select' | 'chat.send', Record<string, unknown>> |
   Envelope<ReadRequest, Record<string, never>>;
 export interface Envelope<T extends string = string, P = unknown> {
   version: 2; type: T; id: string; timestamp: string; payload: P; correlationId?: string;
@@ -87,6 +89,7 @@ function validateSnapshot(p: Record<string, unknown>): void {
 function validateServer(type: string, payload: unknown): void {
   const p = object(payload);
   if(type.startsWith('control.')){validateControlResponse(type,p);return;}
+  if(type.startsWith('chat.')){validateChatResponse(type,p);return;}
   if (type.startsWith('call.')) { validateCallResponse(type, p); return; }
   if (type.startsWith('speech.')) { validateSpeechResponse(type, p); return; }
   if (type.startsWith('conversation.')) { validateConversationResponse(type, p); return; }
@@ -129,6 +132,7 @@ export function parseClient(raw: string): ClientMessage {
     else if (String(row.type).startsWith('call.')) validateCallRequest(String(row.type), p);
     else if (String(row.type).startsWith('speech.')) validateSpeechRequest(String(row.type), p);
     else if (String(row.type).startsWith('conversation.')) validateConversationRequest(String(row.type), p);
+    else if (String(row.type).startsWith('chat.')) validateChatRequest(String(row.type), p);
     else switch (row.type) {
       case 'client.hello': keys(p, ['name']); textField(p.name, 80); break;
       case 'pair.request': keys(p, ['code']); if (!/^[A-F0-9]{16}$/.test(textField(p.code, 16))) throw new ProtocolError('invalid_message'); break;

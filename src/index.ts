@@ -19,6 +19,7 @@ import { WhisperCppEngine } from './speech/SpeechRecognitionEngine.js';
 import { VoiceConversationController } from './conversation/VoiceConversationController.js';
 import { SubmissionLedger } from './conversation/SubmissionLedger.js';
 import {TaskControl} from './control/TaskControl.js';
+import {TextConversation} from './conversation/TextConversation.js';
 
 async function main(): Promise<void> {
   if (Number(process.versions.node.split('.')[0]) !== 24) throw new Error('Node.js 24 LTS required; use scripts/run.ps1 or install Node 24');
@@ -39,6 +40,7 @@ async function main(): Promise<void> {
   let speech: SpeechSessionCoordinator | undefined;
   let conversation: VoiceConversationController | undefined;
   let controls:TaskControl|undefined;
+  let chat:TextConversation|undefined;
   let calls: CallSessionManager | undefined, coordinator: CallEventCoordinator | undefined, media: MediaTransportServer | undefined;
   try {
     if (args.includes('--remote')) {
@@ -56,12 +58,13 @@ async function main(): Promise<void> {
           const ledger=new SubmissionLedger(new WindowsRegistryStorage(resolve(root,'.runtime','remote',mode),'submissions.dpapi'));
           if(args.includes('--controls'))controls=new TaskControl(bridge,ledger,new WindowsRegistryStorage(resolve(root,'.runtime','remote',mode),'controls.dpapi'),id=>devices!.hasDevice(id));
           conversation = new VoiceConversationController(bridge, calls, ledger,Date.now,controls);
+          chat = new TextConversation(bridge, ledger);
           speech.onTranscription((call, utterance) => { void conversation!.transcription(call, utterance); });
         }
         media = new MediaTransportServer(calls, endpoint, speech ? (call, pcm, level) => speech!.frame(call, pcm, level) : undefined);
       }
       remote = new RemoteServer(bridge, devices, endpoint, Number(process.env.CODEX_VOICE_REMOTE_PORT ?? 8787), 15000, 20000,
-        { registry: devices, dispatcher: notifications, projectId: process.env.CODEX_VOICE_FIREBASE_PROJECT_ID }, calls && media ? { manager: calls, media, ...(speech ? { speech } : {}), ...(conversation ? { conversation } : {}) } : undefined,controls);
+        { registry: devices, dispatcher: notifications, projectId: process.env.CODEX_VOICE_FIREBASE_PROJECT_ID }, calls && media ? { manager: calls, media, ...(speech ? { speech } : {}), ...(conversation ? { conversation } : {}) } : undefined,controls,chat);
       await remote.start(); console.log(`Remote monitor: 127.0.0.1:${remote.address} through ${remote.endpoint.href}`);
     }
     await runTerminal(bridge, remote, devices, notifications, calls, media, speech);

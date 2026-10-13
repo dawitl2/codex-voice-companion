@@ -7,7 +7,7 @@ export type CallState = typeof CALL_STATES[number];
 export const TERMINAL = new Set<CallState>(['ended','declined','expired','failed']);
 export interface CallSession {
   callId: string; deviceId: string; eventId: string; threadId: string; turnId: string;
-  kind: NotificationEvent['kind'] | 'review'; mode: 'mock' | 'real'; createdAt: string; expiresAt: string;
+  kind: NotificationEvent['kind'] | 'review' | 'conversation'; mode: 'mock' | 'real'; createdAt: string; expiresAt: string;
   acceptedAt: string | null; endedAt: string | null; state: CallState; muted: boolean; reason: string;
   approvalId?: string;
 }
@@ -95,6 +95,14 @@ export class CallSessionManager {
     this.save(); this.notify(call); return this.view(call);
   }
   status(deviceId: string, callId: string): CallView { this.sweep(); return this.view(this.owner(deviceId, callId)); }
+  outgoing(deviceId:string,threadId:string,turnId:string,mode:'mock'|'real',requestId:string):CallView {
+    this.sweep();if(!this.registry.hasDevice(deviceId))throw new CallError('revoked');
+    const eventId=digest('outgoing|'+deviceId+'|'+requestId),previous=this.sessions.find(c=>c.deviceId===deviceId&&c.eventId===eventId);
+    if(previous)return this.view(previous);
+    if(this.sessions.some(c=>c.deviceId===deviceId&&!TERMINAL.has(c.state)))throw new CallError('call_busy');
+    const call:CallSession={callId:randomUUID(),deviceId,eventId,threadId,turnId,kind:'conversation',mode,createdAt:this.iso(),expiresAt:new Date(this.now()+30000).toISOString(),acceptedAt:null,endedAt:null,state:'offered',muted:false,reason:'phone_initiated'};
+    this.sessions.push(call);while(this.sessions.length>200)this.sessions.splice(this.sessions.findIndex(c=>TERMINAL.has(c.state)),1);this.save();this.notify(call);return this.view(call);
+  }
   accept(deviceId: string, callId: string, identity: string, resume = false): { call: CallView; token: string; tokenExpiresAt: string } {
     this.sweep(); const call = this.owner(deviceId, callId);
     if (!this.registry.hasDevice(deviceId, identity)) throw new CallError('wrong_identity');

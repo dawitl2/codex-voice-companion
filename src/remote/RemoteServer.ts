@@ -15,6 +15,7 @@ import { PCM } from '../calls/AudioProtocol.js';
 import type { SpeechSessionCoordinator } from '../speech/SpeechSessionCoordinator.js';
 import { ConversationError, type VoiceConversationController } from '../conversation/VoiceConversationController.js';
 import {ControlError,type TaskControl} from '../control/TaskControl.js';
+import {ChatError,type TextConversation} from '../conversation/TextConversation.js';
 
 export interface NotificationAccess { registry: DeviceRegistry; dispatcher: NotificationDispatcher; projectId: string | undefined }
 export interface CallAccess { manager: CallSessionManager; media: MediaTransportServer; speech?: SpeechSessionCoordinator; conversation?: VoiceConversationController }
@@ -37,10 +38,11 @@ export class RemoteServer {
   private readonly sockets = new WebSocketServer({ noServer: true, maxPayload: CLIENT_LIMIT, perMessageDeflate: false });
   private heartbeat: NodeJS.Timeout | undefined; private pendingPublish: NodeJS.Timeout | undefined;
   private closing = false; private listening = false;
+  private readonly lastConnections = new Map<string,string>();
   private readonly pendingTypes = new Set<string>();
   readonly endpoint: URL;
   constructor(private readonly bridge: Bridge, private readonly access: RemoteAccess,
-    endpoint: string, private readonly port = 8787, private readonly handshakeMs = 15000, private readonly heartbeatMs = 20000, private readonly notifications?: NotificationAccess, private readonly calls?: CallAccess, readonly controls?:TaskControl) {
+    endpoint: string, private readonly port = 8787, private readonly handshakeMs = 15000, private readonly heartbeatMs = 20000, private readonly notifications?: NotificationAccess, private readonly calls?: CallAccess, readonly controls?:TaskControl, private readonly chat?:TextConversation) {
     this.endpoint = privateEndpoint(endpoint);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid remote port');
     this.server.headersTimeout = 10000; this.server.requestTimeout = 15000;
@@ -82,6 +84,7 @@ export class RemoteServer {
   }
   get address(): number { const address = this.server.address(); if (!address || typeof address === 'string') throw new Error('Not listening'); return address.port; }
   get connectedDevices(): number { return [...this.sessions].filter(s => s.deviceId).length; }
+  deviceState(id:string) {return {connected:[...this.sessions].some(s=>s.deviceId===id),lastConnectedAt:this.lastConnections.get(id)??null};}
   snapshot(): Snapshot {
     const state = this.bridge.store.state;
     const threads = state.threads.slice(-50).map(t => ({ id: t.id, label: sanitize(t.label, 80) || 'Managed conversation', project: sanitize(basename(t.cwd), 80) || 'Project root', status: t.status }));
@@ -126,7 +129,7 @@ export class RemoteServer {
     this.sessions.add(session);
     socket.on('error', () => {});
     socket.on('pong', () => { session.alive = true; });
-    socket.on('close', () => { clearTimeout(timer); this.sessions.delete(session); if (session.deviceId) {this.calls?.conversation?.connection(session.deviceId, -1);this.controls?.connection(session.deviceId,-1);} });
+    socket.on('close', () => { clearTimeout(timer); this.sessions.delete(session); if (session.deviceId) {this.calls?.conversation?.connection(session.deviceId, -1);this.controls?.connection(session.deviceId,-1);this.chat?.connection(session.deviceId,-1);} });
     socket.on('message', (data, binary) => {
       try {
         if (binary) throw new ProtocolError('binary_not_supported');
@@ -151,6 +154,8 @@ export class RemoteServer {
             clearTimeout(timer); this.send(session, 'state.snapshot', this.snapshot());
             this.calls?.conversation?.connection(session.deviceId!, 1);
             this.controls?.connection(session.deviceId!,1);
+            this.chat?.connection(session.deviceId!,1);
+            this.lastConnections.set(session.deviceId!,new Date().toISOString());
           } catch (error) { this.send(session, m.type === 'pair.request' ? 'pair.failed' : 'auth.failed', { code: error instanceof ProtocolError ? error.code : 'storage_unavailable' }, m.id); socket.close(4003, 'Authentication failed'); }
           return;
         }
@@ -172,6 +177,14 @@ export class RemoteServer {
             this.send(session,type,response,m.id);
           }catch(e){this.send(session,'control.error',{code:e instanceof ControlError?e.code:'control_unavailable'},m.id);}})();
         }
+        else if (m.type.startsWith('chat.')) {
+          const deviceId=session.deviceId,p=m.payload as Record<string,unknown>;
+          void(async()=>{try{if(!this.chat)throw new ChatError('chat_unavailable');
+            const response=m.type==='chat.send'?await this.chat.send(deviceId,String(p.threadId),String(p.requestId),String(p.text)):
+              m.type==='chat.select'?await this.chat.select(deviceId,String(p.threadId)):this.chat.status(deviceId,String(p.threadId));
+            if(m.type==='chat.select')this.publish();this.send(session,'chat.status.response',response,m.id);
+          }catch(e){this.send(session,'chat.error',{code:e instanceof ChatError?e.code:'chat_unavailable'},m.id);}})();
+        }
         else if (m.type.startsWith('conversation.')) {
           const deviceId=session.deviceId;
           void (async () => {
@@ -183,7 +196,7 @@ export class RemoteServer {
                 m.type==='conversation.cancel'?voice.cancel(deviceId,callId,String(p.confirmationId)):
                 m.type==='conversation.correct'?voice.correct(deviceId,callId,String(p.confirmationId),String(p.text)):
                 voice.status(deviceId,callId,Number(p.afterSequence));
-              if(response) this.send(session,'conversation.status.response',response,m.id);
+              if(response) { if(m.type==='conversation.select')this.publish(); this.send(session,'conversation.status.response',response,m.id); }
             } catch(error) {this.send(session,'conversation.error',{code:error instanceof ConversationError || error instanceof CallError?error.code:'conversation_unavailable'},m.id);}
           })();
         }
@@ -206,6 +219,13 @@ export class RemoteServer {
             const p = m.payload as Record<string, unknown>; let call = null;
             if (m.type === 'call.preferences.update') calls.manager.setPreferences(session.deviceId, p.enabled as boolean);
             if (['call.preferences.update','call.preferences.request'].includes(m.type)) this.send(session, 'call.preferences.response', { enabled: calls.manager.preferences(session.deviceId) }, m.id);
+            else if (m.type === 'call.start') {
+              const threadId=String(p.threadId);
+              if(!this.bridge.available||this.bridge.threads.activeId!==threadId||!this.bridge.threads.loaded.has(threadId))throw new CallError('select_conversation');
+              const thread=this.bridge.threads.get(threadId),turn=this.bridge.store.state.turns.filter(t=>t.threadId===threadId).at(-1);
+              const outgoing=calls.manager.outgoing(session.deviceId,thread.id,turn?.id??'no_task',this.bridge.mode,m.id);
+              this.send(session,'call.media.response',{...calls.manager.accept(session.deviceId,outgoing.callId,identity),mediaUrl:calls.media.endpoint,format:PCM},m.id);
+            }
             else if (m.type === 'call.accept' || m.type === 'call.resume') this.send(session, 'call.media.response', { ...calls.manager.accept(session.deviceId, String(p.callId), identity, m.type === 'call.resume'), mediaUrl: calls.media.endpoint, format: PCM }, m.id);
             else {
               if (m.type === 'call.offer.request') call = calls.manager.byEvent(session.deviceId, String(p.eventId));

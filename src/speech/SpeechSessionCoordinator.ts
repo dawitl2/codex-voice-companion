@@ -40,7 +40,7 @@ export class SpeechSessionCoordinator {
     this.owner(deviceId, callId); const call = this.calls.status(deviceId, callId);
     const thread = this.bridge.store.state.threads.find(t => t.id === call.threadId);
     const turn = this.bridge.store.state.turns.find(t => t.id === call.turnId && t.threadId === call.threadId);
-    return { callId, text: spokenSummary(thread, turn), mode: call.mode, taskState: turn?.status ?? 'unavailable' };
+    return { callId, text: call.kind==='conversation'&&!turn?'Connected to your selected Codex conversation. What would you like to work on?':spokenSummary(thread, turn), mode: call.mode, taskState: turn?.status ?? 'unavailable' };
   }
   frame(call: CallSession, pcm: Buffer, level: number) {
     const s = this.sessions.get(call.callId); if (!s || s.deviceId !== call.deviceId || !s.enabled || s.speaking || call.muted || call.state !== 'active' || this.engineState !== 'ready') return;

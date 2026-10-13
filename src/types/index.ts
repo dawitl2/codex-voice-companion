@@ -10,6 +10,7 @@ export interface ManagedThread {
   status: 'ready' | 'unavailable'; mode: Mode;
 }
 export interface ManagedTurn {
+  instruction?: string;
   id: string; threadId: string; startedAt: string; finishedAt?: string;
   status: TurnStatus; finalResponse: string; error?: string;
   commandResults: { itemId: string; status: string; exitCode: number | null }[];

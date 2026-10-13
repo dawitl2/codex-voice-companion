@@ -10,7 +10,7 @@ export class ThreadManager {
   get activeId(): string | undefined { return this.selectedId; }
   set activeId(id: string | undefined) { if (id !== this.selectedId) { this.selectedId = id; this.selectionVersion++; } }
   readonly loaded = new Set<string>();
-  constructor(private readonly client: AppServerClient, private readonly store: JsonStore, private readonly mode: Mode, readonly sandbox: Sandbox) {}
+  constructor(private readonly client: AppServerClient, private readonly store: JsonStore, private readonly mode: Mode, readonly sandbox: Sandbox, private readonly writableProject?: string) {}
   list(): ManagedThread[] { return structuredClone(this.store.state.threads); }
   get(id: string): ManagedThread {
     identifier(id); const thread = this.store.state.threads.find(x => x.id === id && x.mode === this.mode);
@@ -19,6 +19,7 @@ export class ThreadManager {
   selected(): ManagedThread { if (!this.activeId) throw new Error('Select a managed thread first'); return this.get(this.activeId); }
   async create(cwdInput: string, label: string, model?: string): Promise<ManagedThread> {
     const cwd = projectDirectory(cwdInput);
+    this.checkWriteProject(cwd);
     const result = object(await this.client.request('thread/start', { cwd, modelProvider: 'openai', serviceTier: 'default', approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: this.sandbox, config: this.config(cwd), ...(model ? { model } : {}) }));
     const wire = this.validate(result, cwd);
     const id = identifier(wire.id);
@@ -28,6 +29,7 @@ export class ThreadManager {
   }
   async resume(id: string): Promise<Record<string, unknown>> {
     const thread = this.get(id); const cwd = projectDirectory(thread.cwd);
+    this.checkWriteProject(cwd);
     if (!samePath(cwd, thread.cwd)) throw new Error('Project path changed; refusing resumption');
     const result = object(await this.client.request('thread/resume', { threadId: id, cwd, model: thread.model, modelProvider: 'openai', serviceTier: 'default', approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: this.sandbox, config: this.config(cwd) }));
     const wire = this.validate(result, cwd); if (identifier(wire.id) !== id) throw new Error('Resumption returned the wrong thread');
@@ -39,6 +41,9 @@ export class ThreadManager {
     const values: Record<string, unknown> = { model_provider: 'openai', forced_login_method: 'chatgpt', service_tier: 'default', approvals_reviewer: 'user', approval_policy: 'on-request', sandbox_mode: this.sandbox, notify: [], mcp_servers: {}, plugins: {}, features: { apps: false, hooks: false, remote_plugin: false } };
     if (this.mode === 'real') Object.assign(values, disabledIntegrations(cwd));
     return values;
+  }
+  private checkWriteProject(cwd: string) {
+    if (this.sandbox === 'workspace-write' && this.writableProject && !samePath(cwd, projectDirectory(this.writableProject))) throw new Error('This project has not been authorized for workspace writes on the desktop');
   }
   private validate(result: Record<string, unknown>, cwd: string): Record<string, unknown> {
     const wire = object(result.thread); const policy = object(result.sandbox);

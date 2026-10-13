@@ -25,6 +25,7 @@ export class TurnManager {
       const wire = object(response.turn);
       if (!['inProgress','completed','failed','interrupted'].includes(String(wire.status))) throw new Error('Invalid turn/start response status');
       const turn = this.ensure(threadId, identifier(wire.id));
+      turn.instruction = sanitize(text, 32000); // Confirmed, actually accepted instruction only; never incidental ASR.
       if (!terminal(turn.status)) turn.status = 'running';
       this.store.save(); return structuredClone(turn);
     } catch (error) {
