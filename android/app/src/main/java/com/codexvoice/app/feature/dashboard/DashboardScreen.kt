@@ -16,7 +16,7 @@ import com.codexvoice.app.core.remote.RemoteStatus
 import com.codexvoice.app.feature.settings.label
 
 @Composable
-fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallReason) -> Unit, onHistory: () -> Unit, onSettings: () -> Unit = {}, onOpenCall: () -> Unit = {},onControls:()->Unit={},onCallCodex:()->Unit={},onChat:()->Unit={},onSelect:(String)->Unit={}) {
+fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallReason) -> Unit, onHistory: () -> Unit, onSettings: () -> Unit = {}, onOpenCall: () -> Unit = {},onControls:()->Unit={},onCallCodex:()->Unit={},onChat:()->Unit={},onSelect:(String)->Unit={},onConnect:()->Unit={}) {
     val context=androidx.compose.ui.platform.LocalContext.current
     val recentCalls=com.codexvoice.app.core.calls.RecentCalls.list(context)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -36,11 +36,14 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
                     }
                     state.remote?.problem?.takeIf { it.isNotEmpty() && !state.demoMode }?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     if (!state.demoMode) {
+                        Text(state.remote?.bridgeName?.ifBlank{"Paired PC"}?:"No PC paired",style=MaterialTheme.typography.bodyMedium)
+                        if(state.remote?.lastConnected!=null&&state.remote.lastConnected>0)Text("Last connected · ${formattedTime(state.remote.lastConnected)}",style=MaterialTheme.typography.bodySmall)
+                        if(state.remote?.status!=RemoteStatus.CONNECTED)Button(if(state.remote?.paired==true)onConnect else onSettings,modifier=Modifier.fillMaxWidth(),enabled=state.remote?.status !in setOf(RemoteStatus.CONNECTING,RemoteStatus.AUTHENTICATING,RemoteStatus.PAIRING,RemoteStatus.RECONNECTING)){Text(if(state.remote?.paired==true)"Connect" else "Pair your PC")}
                         state.remote?.snapshot?.let { Text("Last synchronized · ${formattedTime(it.syncedAt)}", style = MaterialTheme.typography.bodySmall) }
                         if (state.remote?.status != RemoteStatus.CONNECTED && state.remote?.snapshot != null) Text("Last known state · may be stale", color = MaterialTheme.colorScheme.error)
                         TextButton(onSettings) { Text("Connection settings") }
                         val selected=state.remote?.snapshot?.threads?.find{it.id==state.remote.snapshot?.selectedThreadId}
-                        Text(selected?.let{it.project+" · "+it.label}?:"Choose a conversation",style=MaterialTheme.typography.bodyMedium)
+                        selected?.let{Text(it.project,style=MaterialTheme.typography.titleMedium);Text(it.label,style=MaterialTheme.typography.bodyLarge)}?:Text("Choose a conversation",style=MaterialTheme.typography.bodyMedium)
                         Button(onCallCodex,enabled=state.remote?.status==RemoteStatus.CONNECTED,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=androidx.compose.ui.graphics.Color(0xFF30B963),contentColor=androidx.compose.ui.graphics.Color.White)){Icon(Icons.Default.Call,null,Modifier.size(20.dp));Spacer(Modifier.width(8.dp));Text("Call Codex")}
                         Row{TextButton(onChat,enabled=state.remote?.status==RemoteStatus.CONNECTED){Text("Text Codex")};TextButton(onControls,enabled=state.remote?.status==RemoteStatus.CONNECTED){Text("Task controls")}}
                     }

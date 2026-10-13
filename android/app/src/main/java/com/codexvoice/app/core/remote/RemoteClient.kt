@@ -72,6 +72,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     }
     fun connect() = post {
         if (credential == null) { update(RemoteStatus.UNPAIRED, "Pair this PC first."); return@post }
+        if(authenticated&&credential!!.enabled){desired=true;requestSnapshot();return@post}
         try { credential = credential!!.copy(enabled = true); store.save(credential!!); desired = true; attempts = 0; open() }
         catch (_: Exception) { stopSocket(); update(RemoteStatus.STORAGE_ERROR, "Could not save connection preferences.") }
     }

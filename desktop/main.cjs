@@ -1,10 +1,25 @@
-const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 let window, worker, latest = { running: false, error: '', connectedPhones: 0 }, nextId = 0, pending = new Map(), stopping;
 let config, settingsPath, backend;
+let tray, quitting=false, trayStatus='';
+function restore(){window?.show();window?.restore();window?.focus();}
+function updateTray(){
+  if(!tray)return;
+  const status=stopping?'Stopping':latest.starting?'Starting':latest.running?'Running':'Stopped';
+  if(status===trayStatus)return;trayStatus=status;tray.setToolTip('Codex Voice · '+status);
+  const imagePath=path.join(__dirname,latest.running?'tray-running.png':'tray-stopped.png');if(fs.existsSync(imagePath))tray.setImage(nativeImage.createFromPath(imagePath));
+  tray.setContextMenu(Menu.buildFromTemplate([
+    {label:'Open Codex Voice',click:restore},{label:status,enabled:false},{type:'separator'},
+    {label:'Start Companion',enabled:!worker&&!stopping,click:()=>{void start({writable:config.writable,notifications:config.notifications,sparkConfirmed:config.sparkConfirmed}).catch(e=>{latest.error=e.message;restore();});}},
+    {label:'STOP ALL',enabled:!!worker&&!stopping,click:()=>{void stop(true);}},
+    {type:'separator'},{label:'Quit Completely',click:()=>{void quitCompletely();}}
+  ]));
+}
+async function quitCompletely(){if(await stop(true)===false)return;quitting=true;tray?.destroy();tray=undefined;window?.destroy();app.quit();}
 const permitted = new Map(Object.entries({ state: [], start: ['writable','notifications','sparkConfirmed'], stop: [], quit: [], project: [], create: ['label'], select: ['threadId'],
   send: ['threadId','text'], interrupt: ['threadId'], pair: [], revoke: ['deviceId'], nominate: ['approvalId'], decision: ['approvalId','accept'], trust: ['deviceId','fingerprint'] }));
 function validAction(type, value) {
@@ -36,6 +51,7 @@ async function start(payload) {
   const node = app.isPackaged ? path.join(backend, 'node.exe') : path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe');
   const script = path.join(backend, 'dist/src/desktop/worker.js');
   latest = { running: false, starting: true, project: config.project, error: '' };
+  updateTray();
   worker = spawn(node, [script, runPath], { cwd: backend, shell: false, windowsHide: true, stdio: ['pipe','pipe','pipe'] });
   let buffer = '';
   worker.stdout.setEncoding('utf8'); worker.stderr.resume(); // no raw subprocess diagnostic log or credentials
@@ -44,7 +60,7 @@ async function start(payload) {
     let end; while ((end = buffer.indexOf('\n')) >= 0) {
       const raw = buffer.slice(0, end); buffer = buffer.slice(end+1);
       try { const m = JSON.parse(raw);
-        if (m.type === 'state') { latest = m.state; if (latest.selectedThreadId && config.selectedThreadId !== latest.selectedThreadId) { config.selectedThreadId = latest.selectedThreadId; save(); } }
+        if (m.type === 'state') { latest = m.state; updateTray(); if (latest.selectedThreadId && config.selectedThreadId !== latest.selectedThreadId) { config.selectedThreadId = latest.selectedThreadId; save(); } }
         else { const p = pending.get(m.id); if (p) { clearTimeout(p.timer); pending.delete(m.id); m.error ? p.reject(Error(m.error)) : p.resolve(m.result); } }
       } catch { latest.error = 'Companion returned invalid state'; }
     }
@@ -52,14 +68,16 @@ async function start(payload) {
   worker.once('error', () => { latest.error = 'Could not launch the bundled Node runtime'; });
   worker.once('close', () => {
     worker = undefined; latest = { running: false, connectedPhones: 0, mediaSessions: 0, error: latest.error || '', project: config.project };
+    updateTray();
     for (const p of pending.values()) { clearTimeout(p.timer); p.reject(Error('Companion stopped; verify any uncertain task on PC')); } pending.clear();
   });
-  try { latest = await request('start'); return latest; }
+  try { latest = await request('start'); updateTray(); return latest; }
   catch (e) { latest.error = e.message; await stop(false); throw e; }
 }
 async function stop(confirm = true) {
   if (!worker) return;
   if (confirm && latest.turns?.some(t => !['completed','failed','interrupted'].includes(t.status))) {
+    restore();
     const { response } = await dialog.showMessageBox(window, { type: 'warning', title: 'Stop owned Codex work?',
       message: 'STOP ALL will end calls and stop this companion’s Codex process. Its active work may be interrupted.', buttons: ['Cancel','Stop All'], defaultId: 0, cancelId: 0 });
     if (response !== 1) return false;
@@ -79,11 +97,12 @@ async function stop(confirm = true) {
     });
     latest.running = false;
   })();
-  try { await stopping; } finally { stopping = undefined; }
+  updateTray();
+  try { await stopping; } finally { stopping = undefined; updateTray(); }
   return true;
 }
-if (!app.requestSingleInstanceLock()) app.quit();
-app.on('second-instance', () => { window?.show(); window?.focus(); });
+if (!app.requestSingleInstanceLock()) app.exit(0);
+app.on('second-instance', restore);
 app.whenReady().then(() => {
   app.setAppUserModelId('com.codexvoice.desktop');
   backend = app.isPackaged ? path.join(__dirname, '../backend') : path.join(__dirname, '..');
@@ -112,11 +131,12 @@ app.whenReady().then(() => {
     }
     if (type === 'start') return start(payload);
     if (type === 'stop') return { stopped: await stop(true) };
-    if (type === 'quit') { if (await stop(true) !== false) { window.destroy(); app.quit(); } return {}; }
+    if (type === 'quit') { await quitCompletely(); return {}; }
     return request(type, payload);
   });
-  let closing = false;
-  window.on('close', e => { if (!closing) { e.preventDefault(); void stop(true).then(ok => { if (ok !== false) { closing = true; window.destroy(); app.quit(); } }); } });
+  tray=new Tray(nativeImage.createFromPath(path.join(__dirname,'icon.ico')));tray.on('click',restore);tray.on('double-click',restore);updateTray();
+  window.on('close', e => { if(!quitting){e.preventDefault();window.hide();} });
   window.loadFile(rendererPath);
 });
-app.on('window-all-closed', () => app.quit());
+app.on('window-all-closed',()=>{if(quitting)app.quit();});
+app.on('before-quit',e=>{if(!quitting){e.preventDefault();void quitCompletely();}});

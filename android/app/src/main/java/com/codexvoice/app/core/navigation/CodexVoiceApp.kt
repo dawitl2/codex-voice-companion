@@ -163,7 +163,7 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding),
                     enterTransition = { fadeIn(tween(if (reduceMotion) 0 else 180)) },
                     exitTransition = { fadeOut(tween(if (reduceMotion) 0 else 120)) }) {
-                    composable("home") { DashboardScreen(dashboard, reduceMotion, viewModel::previewCall, { navigate("history") }, { navigate("settings") }, viewModel::openLiveCall,openControls,callCodex,openChat,{id->viewModel.openChat(id);viewModel.selectChat(id);chatOpen=true}) }
+                    composable("home") { DashboardScreen(dashboard, reduceMotion, viewModel::previewCall, { navigate("history") }, { navigate("settings") }, viewModel::openLiveCall,openControls,callCodex,openChat,{id->viewModel.openChat(id);viewModel.selectChat(id);chatOpen=true},viewModel::connectPc) }
                     composable("history") { HistoryScreen(dashboard.history, reduceMotion, viewModel::clearHistory, viewModel::resetDemo, dashboard.demoMode, dashboard.connection, dashboard.remote?.snapshot?.mode == "mock") }
                     composable("settings") { SettingsScreen(prefs, viewModel::setTheme, viewModel::setCalling, viewModel::setReduceMotion,
                         dashboard.remote, dashboard.demoMode, viewModel::selectDemo, viewModel::pair, viewModel::connectPc, viewModel::disconnectPc, viewModel::forgetPc,

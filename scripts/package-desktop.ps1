@@ -19,6 +19,8 @@ try {
     Copy-Item -LiteralPath .cache/speech/whisper-b5454/Release -Destination (Join-Path $backend '.cache\speech\whisper-b5454') -Recurse
     Copy-Item -LiteralPath .cache/speech/models/ggml-tiny.en.bin -Destination (Join-Path $backend '.cache\speech\models')
     Copy-Item -LiteralPath docs/licenses -Destination $backend -Recurse
+    New-Item -ItemType Directory -Path (Join-Path $backend 'scripts') -Force|Out-Null
+    Copy-Item -LiteralPath scripts/session-owners.ps1 -Destination (Join-Path $backend 'scripts')
     Copy-Item -LiteralPath package.json,package-lock.json -Destination $backend
     $npmCli = Join-Path (Split-Path (Get-Command npm.cmd).Source -Parent) 'node_modules/npm/bin/npm-cli.js'
     & $nodeExe $npmCli ci --prefix $backend --omit=dev --ignore-scripts --no-audit --no-fund
@@ -39,6 +41,14 @@ try {
     $icon = [IO.File]::Create($iconPath); $writer = New-Object IO.BinaryWriter($icon)
     $writer.Write([uint16]0);$writer.Write([uint16]1);$writer.Write([uint16]1);$writer.Write([byte]0);$writer.Write([byte]0);$writer.Write([byte]0);$writer.Write([byte]0);$writer.Write([uint16]1);$writer.Write([uint16]32);$writer.Write([uint32]$png.Length);$writer.Write([uint32]22);$writer.Write($png)
     $writer.Dispose();$icon.Dispose();$memory.Dispose();$pen.Dispose();$graphics.Dispose();$bitmap.Dispose()
+    foreach($trayState in @('running','stopped')){
+        $trayBitmap=New-Object Drawing.Bitmap(32,32);$trayGraphics=[Drawing.Graphics]::FromImage($trayBitmap);$trayGraphics.Clear([Drawing.Color]::Transparent)
+        $trayPen=New-Object Drawing.Pen([Drawing.Color]::White,3);$trayGraphics.DrawLines($trayPen,[Drawing.Point[]]@((New-Object Drawing.Point(10,7)),(New-Object Drawing.Point(3,15)),(New-Object Drawing.Point(10,23))))
+        $trayGraphics.DrawLines($trayPen,[Drawing.Point[]]@((New-Object Drawing.Point(20,7)),(New-Object Drawing.Point(27,15)),(New-Object Drawing.Point(20,23))))
+        $trayBrush=New-Object Drawing.SolidBrush($(if($trayState -eq 'running'){[Drawing.Color]::FromArgb(48,185,99)}else{[Drawing.Color]::FromArgb(142,142,147)}))
+        $trayGraphics.FillEllipse($trayBrush,21,22,10,10);$trayBitmap.Save((Join-Path $stage "desktop\tray-$trayState.png"),[Drawing.Imaging.ImageFormat]::Png)
+        $trayBrush.Dispose();$trayPen.Dispose();$trayGraphics.Dispose();$trayBitmap.Dispose()
+    }
     $output = Join-Path $desktopRoot ('.runtime\desktop-builds\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
     New-Item -ItemType Directory -Path $output -Force | Out-Null
     & $nodeExe node_modules/@electron/packager/bin/electron-packager.mjs $stage 'Codex Voice' --no-asar --platform=win32 --arch=x64 --electron-version=44.7.0 "--out=$output" "--icon=$iconPath" --app-version=1.0.0 --build-version=1.0.0 --win32metadata.CompanyName='Codex Voice' --win32metadata.FileDescription='Private desktop and Android voice companion'
