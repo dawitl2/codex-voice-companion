@@ -32,6 +32,23 @@ class FinalDeliveryTest{
     private fun until(label:String,timeout:Long=45000,p:()->Boolean){val end=SystemClock.elapsedRealtime()+timeout;while(!p()){check(SystemClock.elapsedRealtime()<end){"$label timed out; call=${CallRuntime.state.value.phase}; problem=${CallRuntime.state.value.problem}"};Thread.sleep(100)};println("Verified: $label")}
     private fun text(value:String)=try{compose.onAllNodesWithText(value,substring=true).fetchSemanticsNodes().isNotEmpty()}catch(_:IllegalStateException){false}
     private fun click(value:String){if(value=="Hang up")compose.onNodeWithContentDescription(value).performClick()else compose.onNodeWithText(value).performClick()}
+    @Test fun realKillSwitchReleasesAnOutgoingCall(){
+        assumeTrue(InstrumentationRegistry.getArguments().getString("killSwitchOnly")=="true")
+        val activity=instrumentation.startActivitySync(Intent(context,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+        instrumentation.runOnMainSync{activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)}
+        val model=ViewModelProvider(activity)[DashboardViewModel::class.java]
+        val directory=File(context.noBackupFilesDir,"final-delivery").apply{mkdirs()}
+        try{
+            until("Authenticated real companion for shutdown"){model.dashboard.value.remote?.status==RemoteStatus.CONNECTED}
+            compose.waitForIdle();until("Call action available"){compose.onAllNodes(hasText("Call Codex") and isEnabled()).fetchSemanticsNodes().isNotEmpty()};click("Call Codex")
+            until("Real audio ready for STOP ALL"){CallRuntime.state.value.phase==LivePhase.ACTIVE&&CallRuntime.state.value.capturing&&CallRuntime.state.value.pcReceivedFrames>=20}
+            File(directory,"kill-ready.txt").writeText("active")
+            until("STOP ALL ends phone capture and playback",90000){!CallRuntime.state.value.serviceRunning&&!CallRuntime.state.value.capturing&&!CallRuntime.state.value.playing}
+            until("STOP ALL releases Telecom"){!TelecomRuntime.claimed}
+            until("Phone observes PC offline"){model.dashboard.value.remote?.status!=RemoteStatus.CONNECTED}
+            File(directory,"kill-result.json").writeText(Gson().toJson(mapOf("microphoneReleased" to true,"playbackReleased" to true,"telecomReleased" to true,"pcOffline" to true)))
+        }finally{if(CallRuntime.state.value.serviceRunning)CallRuntime.command(context,CallAudioService.END)}
+    }
     @Test fun realDesktopOutgoingTextCodingIncomingAndCleanup()=runBlocking{
         assumeTrue(InstrumentationRegistry.getArguments().getString("finalDelivery")=="true")
         check(!context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){"User must unlock phone"}

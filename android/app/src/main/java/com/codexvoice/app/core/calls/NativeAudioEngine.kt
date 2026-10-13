@@ -126,7 +126,7 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
             track!!.setVolume(.35f); track!!.play()
             if (!muted && !systemMuted) { record!!.startRecording(); check(record!!.recordingState == AudioRecord.RECORDSTATE_RECORDING) }
             if (closed.get()) { releaseAudio(); return }
-            CallRuntime.update { it.copy(phase = LivePhase.ACTIVE, muted = muted, capturing = !muted, playing = true, problem = "", activeAt = if (it.activeAt == 0L) SystemClock.elapsedRealtime() else it.activeAt,
+            CallRuntime.update { it.copy(phase = LivePhase.ACTIVE, muted = muted || systemMuted, capturing = !muted && !systemMuted, playing = true, problem = "", activeAt = if (it.activeAt == 0L) SystemClock.elapsedRealtime() else it.activeAt,
                 captureSampleRate = record!!.sampleRate, playbackSampleRate = track!!.sampleRate) }
             routeState()
             CallDiagnostics.record(context, "capture_started")

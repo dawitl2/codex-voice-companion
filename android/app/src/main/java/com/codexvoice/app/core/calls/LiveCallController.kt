@@ -42,7 +42,7 @@ class LiveCallController(private val context: Context, private val client: Remot
                         val offer = CallWire.offer(response.payload.getAsJsonObject("call"))
                         if (state.value.serviceRunning) {
                             if (offer.callId == state.value.offer?.callId && offer.state in setOf("ended","failed","expired","declined")) CallRuntime.command(context, CallAudioService.END)
-                        } else if (operation == "current" || (operation == "offer" && offer.eventId == wantedEvent)) {
+                        } else if ((operation == "current" || (operation == "offer" && offer.eventId == wantedEvent)) && state.value.phase !in setOf(LivePhase.CONNECTING,LivePhase.RECONNECTING,LivePhase.ACTIVE)) {
                             resumes = 0; wantedEvent = null
                             CallDiagnostics.record(context, "offer_received")
                             CallRuntime.update { LiveCallState(phase = phase(offer.state), offer = offer, muted = offer.muted) }

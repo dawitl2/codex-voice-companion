@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
-const { spawn } = require('node:child_process');
+const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
@@ -69,8 +69,13 @@ async function stop(confirm = true) {
     const child = worker;
     try { await request('stop'); } catch { child?.stdin.end(); }
     if (child && child.exitCode === null) await new Promise(resolve => {
-      const timer = setTimeout(() => { child.kill(); resolve(); }, 10000);
-      child.once('close', () => { clearTimeout(timer); resolve(); });
+      let forcing=false;
+      const timer = setTimeout(() => {
+        forcing=true;
+        // Fixed executable and our still-live child PID only; never kill by image name.
+        execFile(path.join(process.env.SystemRoot||'C:\\Windows','System32/taskkill.exe'),['/PID',String(child.pid),'/T','/F'],{windowsHide:true,timeout:10000},()=>{child.kill();resolve();});
+      }, 10000);
+      child.once('close', () => { clearTimeout(timer); if(!forcing)resolve(); });
     });
     latest.running = false;
   })();
