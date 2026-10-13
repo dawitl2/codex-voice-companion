@@ -11,7 +11,7 @@ import android.os.Looper
 import java.io.Closeable
 import com.codexvoice.app.core.notifications.TaskNotifications
 
-/** Local incoming alert only while the offered-call Activity is resumed. Never opens a microphone. */
+/** Bounded local ringtone owned by a real incoming service or foreground offer. Never opens a microphone. */
 class IncomingCallRinger(private val context: Context, private val expiresAt: Long) : Closeable {
     private val handler = Handler(Looper.getMainLooper())
     private var ringtone: Ringtone? = null

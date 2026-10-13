@@ -36,6 +36,7 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
     private var focus: AudioFocusRequest? = null
     private var previousMode: Int? = null
     private var previousDevice: AudioDeviceInfo? = null
+    @Volatile private var systemMuted=false
     private val jitter = PcmJitterBuffer()
     private val sequence = FrameSequence()
     private var captureJob: Job? = null; private var playJob: Job? = null
@@ -46,6 +47,7 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
         override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>) { routeState() }
     }
     fun connect() {
+        scope.launch{TelecomRuntime.muted.collect{systemMuted=it;if(ready)applyCaptureGate()}}
         if (grant.expiresAt <= System.currentTimeMillis()) { finish("Media authorization expired", false); return }
         val request = Request.Builder().url(grant.endpoint).header("Authorization", "Bearer ${grant.token}").build()
         socket = http.newWebSocket(request, object : WebSocketListener() {
@@ -104,6 +106,7 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
             val minRecord = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
             val minTrack = AudioTrack.getMinBufferSize(16000, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
             check(minRecord in 1..16000 && minTrack in 1..16000)
+            if(!TelecomRuntime.claimed){
             previousMode = audio.mode; previousDevice = audio.communicationDevice
             focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
                 .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
@@ -111,6 +114,7 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
             check(audio.requestAudioFocus(focus!!) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
             audio.mode = AudioManager.MODE_IN_COMMUNICATION
             audio.registerAudioDeviceCallback(devices, android.os.Handler(android.os.Looper.getMainLooper()))
+            }
             record = AudioRecord.Builder().setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
                 .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(16000).setChannelMask(AudioFormat.CHANNEL_IN_MONO).build())
                 .setBufferSizeInBytes(max(minRecord, 640 * 8)).build()
@@ -120,7 +124,7 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
                 .setTransferMode(AudioTrack.MODE_STREAM).setBufferSizeInBytes(max(minTrack, 640 * 4)).build()
             check(track!!.state == AudioTrack.STATE_INITIALIZED && track!!.sampleRate == 16000)
             track!!.setVolume(.35f); track!!.play()
-            if (!muted) { record!!.startRecording(); check(record!!.recordingState == AudioRecord.RECORDSTATE_RECORDING) }
+            if (!muted && !systemMuted) { record!!.startRecording(); check(record!!.recordingState == AudioRecord.RECORDSTATE_RECORDING) }
             if (closed.get()) { releaseAudio(); return }
             CallRuntime.update { it.copy(phase = LivePhase.ACTIVE, muted = muted, capturing = !muted, playing = true, problem = "", activeAt = if (it.activeAt == 0L) SystemClock.elapsedRealtime() else it.activeAt,
                 captureSampleRate = record!!.sampleRate, playbackSampleRate = track!!.sampleRate) }
@@ -135,18 +139,18 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
         val recorder = record ?: return
         try {
             while (scope.isActive && !closed.get()) {
-                if (muted || speechPaused) { samples.fill(0); offset = 0; delay(20); continue }
+                if (muted || systemMuted || speechPaused) { samples.fill(0); offset = 0; delay(20); continue }
                 if (recorder.recordingState != AudioRecord.RECORDSTATE_RECORDING) { delay(20); continue }
                 val count = recorder.read(samples, offset, 320 - offset, AudioRecord.READ_BLOCKING)
                 if (closed.get()) break
-                if (muted || speechPaused) { offset = 0; continue }
+                if (muted || systemMuted || speechPaused) { offset = 0; continue }
                 check(count > 0); offset += count
                 if (offset < 320) continue
                 offset = 0
                 if (!canTransmit(CallRuntime.state.value.phase, muted, ready)) continue
                 if (socket!!.queueSize() > 4096) { CallRuntime.update { it.copy(dropped = it.dropped + 1) }; continue }
                 AudioFrames.encode(bytes, samples, sequence++, SystemClock.elapsedRealtime())
-                if (muted || speechPaused || closed.get()) continue
+                if (muted || systemMuted || speechPaused || closed.get()) continue
                 check(socket!!.send(bytes.toByteString()))
                 sent++
                 val now = SystemClock.elapsedRealtime()
@@ -187,17 +191,18 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
     private suspend fun applyCaptureGate(): Boolean = recorderControl.withLock {
         if (!ready || closed.get()) return@withLock false
         try {
-            val blocked = muted || speechPaused
+            val blocked = muted || systemMuted || speechPaused
             if (blocked) { if (record?.recordingState == AudioRecord.RECORDSTATE_RECORDING) record?.stop() }
             else if (record?.recordingState != AudioRecord.RECORDSTATE_RECORDING) { record?.startRecording(); check(record?.recordingState == AudioRecord.RECORDSTATE_RECORDING) }
             socket?.send("""{"version":1,"type":"media.mute","muted":$blocked}""")
-            CallRuntime.update { it.copy(muted = muted, capturing = !blocked && record?.recordingState == AudioRecord.RECORDSTATE_RECORDING, inputLevel = 0f) }
+            CallRuntime.update { it.copy(muted = muted || systemMuted, capturing = !blocked && record?.recordingState == AudioRecord.RECORDSTATE_RECORDING, inputLevel = 0f) }
             true
         } catch (_: Exception) { if (!closed.get()) finish("Microphone mute control failed", false); false }
     }
     fun tone() { if (ready && !closed.get()) socket?.send("""{"version":1,"type":"media.tone"}""") }
     fun speaker(value: Boolean) = scope.launch {
         if (!ready || closed.get()) return@launch
+        if(TelecomRuntime.claimed){TelecomRuntime.speaker(value);return@launch}
         try {
             val type = if (value) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
             val target = audio.availableCommunicationDevices.firstOrNull { it.type == type }
@@ -207,6 +212,7 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
     }
     private fun routeState() {
         if (closed.get()) return
+        if(TelecomRuntime.claimed)return
         try {
             val devices = audio.availableCommunicationDevices; val current = audio.communicationDevice
             val name = when (current?.type) { AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "Phone speaker"; AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "Phone earpiece"; AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "Wired headset"; AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET -> "Bluetooth headset"; else -> "System route" }
@@ -230,7 +236,7 @@ class NativeAudioEngine(private val context: Context, private val grant: MediaGr
         try { record?.release() } catch (_: Exception) { }; record = null
         try { track?.stop(); track?.release() } catch (_: Exception) { }; track = null; jitter.clear()
         try { audio.unregisterAudioDeviceCallback(devices) } catch (_: Exception) { }
-        try { focus?.let(audio::abandonAudioFocusRequest); if (audio.mode == AudioManager.MODE_IN_COMMUNICATION) { audio.clearCommunicationDevice(); previousDevice?.let { if (audio.availableCommunicationDevices.any { device -> device.id == it.id }) audio.setCommunicationDevice(it) }; previousMode?.let { audio.mode = it } } } catch (_: Exception) { }
+        try { focus?.let(audio::abandonAudioFocusRequest); if (previousMode != null && audio.mode == AudioManager.MODE_IN_COMMUNICATION) { audio.clearCommunicationDevice(); previousDevice?.let { if (audio.availableCommunicationDevices.any { device -> device.id == it.id }) audio.setCommunicationDevice(it) }; previousMode?.let { audio.mode = it } } } catch (_: Exception) { }
         focus = null
     }
     fun destroy() { finish("Audio service stopped", false) }

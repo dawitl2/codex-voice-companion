@@ -27,6 +27,7 @@ class DashboardViewModel(
     private val speech: SpeechSessionController? = null,
     private val controls:com.codexvoice.app.core.control.TaskControlController?=null,
     private val ownsRuntime: Boolean = true,
+    private val chat:com.codexvoice.app.core.conversation.ChatController?=null,
 ) : ViewModel() {
     private val basicDashboard = combine(tasks.current, tasks.history, tasks.connection) { task, history, connection ->
         DashboardState(task, sortedHistory(history), connection)
@@ -45,6 +46,15 @@ class DashboardViewModel(
     val speechState = SpeechRuntime.state
     val conversationState=com.codexvoice.app.core.conversation.ConversationRuntime.state
     val controlState=controls?.state?:MutableStateFlow(com.codexvoice.app.core.control.ControlState()).asStateFlow()
+    val chatState=chat?.state?:MutableStateFlow(com.codexvoice.app.core.conversation.ChatState()).asStateFlow()
+    val pendingIncomingAnswer=MutableStateFlow<String?>(null)
+    fun incomingAnswer(event:String){pendingIncomingAnswer.value=event;openNotification(event)}
+    fun consumeIncomingAnswer(){pendingIncomingAnswer.value=null}
+    fun openChat(id:String){chat?.open(id)}
+    fun selectChat(id:String){chat?.select(id)}
+    fun hideChat(){chat?.hide()}
+    fun sendChat(text:String){chat?.send(text)}
+    fun callCodex(id:String,permitted:Boolean){liveCalls?.outgoing(id,permitted)}
     fun openControls(id:String){controls?.open(id)}
     fun hideControls(){controls?.hide()}
     fun interruptTask(){controls?.interrupt()}

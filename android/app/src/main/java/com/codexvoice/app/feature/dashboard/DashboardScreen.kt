@@ -16,7 +16,9 @@ import com.codexvoice.app.core.remote.RemoteStatus
 import com.codexvoice.app.feature.settings.label
 
 @Composable
-fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallReason) -> Unit, onHistory: () -> Unit, onSettings: () -> Unit = {}, onOpenCall: () -> Unit = {},onControls:()->Unit={}) {
+fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallReason) -> Unit, onHistory: () -> Unit, onSettings: () -> Unit = {}, onOpenCall: () -> Unit = {},onControls:()->Unit={},onCallCodex:()->Unit={},onChat:()->Unit={},onSelect:(String)->Unit={}) {
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val recentCalls=com.codexvoice.app.core.calls.RecentCalls.list(context)
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item {
             Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -37,13 +39,16 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
                         state.remote?.snapshot?.let { Text("Last synchronized · ${formattedTime(it.syncedAt)}", style = MaterialTheme.typography.bodySmall) }
                         if (state.remote?.status != RemoteStatus.CONNECTED && state.remote?.snapshot != null) Text("Last known state · may be stale", color = MaterialTheme.colorScheme.error)
                         TextButton(onSettings) { Text("Connection settings") }
-                        if(state.remote?.status==RemoteStatus.CONNECTED) TextButton(onOpenCall) { Text("Open audio session") }
-                        if(state.remote?.status==RemoteStatus.CONNECTED)TextButton(onControls){Text("Task controls")}
+                        val selected=state.remote?.snapshot?.threads?.find{it.id==state.remote.snapshot?.selectedThreadId}
+                        Text(selected?.let{it.project+" · "+it.label}?:"Choose a conversation",style=MaterialTheme.typography.bodyMedium)
+                        Button(onCallCodex,enabled=state.remote?.status==RemoteStatus.CONNECTED,modifier=Modifier.fillMaxWidth(),colors=ButtonDefaults.buttonColors(containerColor=androidx.compose.ui.graphics.Color(0xFF30B963),contentColor=androidx.compose.ui.graphics.Color.White)){Icon(Icons.Default.Call,null,Modifier.size(20.dp));Spacer(Modifier.width(8.dp));Text("Call Codex")}
+                        Row{TextButton(onChat,enabled=state.remote?.status==RemoteStatus.CONNECTED){Text("Text Codex")};TextButton(onControls,enabled=state.remote?.status==RemoteStatus.CONNECTED){Text("Task controls")}}
                     }
                 }
             }
         }
         item { Eyebrow(if (state.demoMode) "Current task · sample" else "Current task") }
+        if(!state.demoMode&&recentCalls.isNotEmpty())item{Column(verticalArrangement=Arrangement.spacedBy(6.dp)){Text("Recent calls",style=MaterialTheme.typography.titleMedium);recentCalls.take(3).forEach{Text(it.status+" · "+java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(it.time)),style=MaterialTheme.typography.bodySmall)}}}
         item { state.current?.let { TaskCard(it, reduceMotion) } ?: EmptyState("No active task", "Ready when you are.") }
         if (state.demoMode) item {
             Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
@@ -61,7 +66,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
         if (!state.demoMode && state.remote?.snapshot?.threads?.isNotEmpty() == true) {
             item { Eyebrow("Recent managed conversations") }
             items(state.remote.snapshot.threads, key = { "thread-" + it.id }) { thread ->
-                Card(shape = RoundedCornerShape(14.dp)) {
+                Card(onClick={onSelect(thread.id)},shape = RoundedCornerShape(12.dp)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(thread.label, style = MaterialTheme.typography.titleMedium)
                         Text(thread.project + if (thread.id == state.remote.snapshot.selectedThreadId) " · Selected on PC" else "", style = MaterialTheme.typography.bodyMedium)

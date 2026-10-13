@@ -14,8 +14,8 @@ android {
         applicationId = "com.codexvoice.app"
         minSdk = 31
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.7.0"
+        versionCode = 6
+        versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }
@@ -27,6 +27,7 @@ android {
 }
 kotlin { compilerOptions { jvmTarget = JvmTarget.JVM_17 } }
 dependencies {
+    implementation("androidx.core:core-telecom:1.0.0")
     implementation(platform("com.google.firebase:firebase-bom:35.0.0"))
     implementation("com.google.firebase:firebase-messaging")
     implementation(platform("androidx.compose:compose-bom:2025.04.01"))

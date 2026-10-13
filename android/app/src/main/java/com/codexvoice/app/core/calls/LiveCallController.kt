@@ -56,6 +56,7 @@ class LiveCallController(private val context: Context, private val client: Remot
                 "call.media.response" -> {
                     resumePending = false
                     val grant = CallWire.grant(response.payload)
+                    if (operation == "outgoing" && state.value.phase == LivePhase.CONNECTING) CallRuntime.update { it.copy(offer = grant.call) }
                     if (state.value.phase !in setOf(LivePhase.CONNECTING, LivePhase.RECONNECTING)) {
                         CallDiagnostics.record(context, "grant_stale")
                         request("call.end", mapOf("callId" to grant.call.callId), "end"); return@collect
@@ -70,6 +71,7 @@ class LiveCallController(private val context: Context, private val client: Remot
                         CallRuntime.update { it.copy(phase = LivePhase.FAILED, problem = "Return to the app to start an authorized microphone session") }; return@collect
                     }
                     CallRuntime.prepare(grant)
+                    if (operation == "outgoing") TelecomRuntime.outgoing(context,grant.call)
                     try { CallDiagnostics.record(context, "service_requested")
                         val intent = Intent(context, CallAudioService::class.java).setAction(CallAudioService.CONNECT)
                         if (running) context.startService(intent) else ContextCompat.startForegroundService(context, intent)
@@ -123,6 +125,14 @@ class LiveCallController(private val context: Context, private val client: Remot
         if (current.phase == LivePhase.OFFERED && current.offer != null && current.offer.expiresAt <= System.currentTimeMillis()) CallRuntime.update { it.copy(phase = LivePhase.EXPIRED, problem = "Call invitation expired; task results remain available") }
     }
     fun foreground(active: Boolean) = scope.launch { foreground = active; sync() }
+    fun outgoing(threadId:String, permitted:Boolean) = scope.launch {
+        if(state.value.serviceRunning || state.value.phase in setOf(LivePhase.CONNECTING,LivePhase.ACTIVE,LivePhase.RECONNECTING))return@launch
+        if(!foreground || !permitted || !TaskNotifications.permission(context) || client.state.value.status!=RemoteStatus.CONNECTED) {
+            CallRuntime.update{LiveCallState(phase=LivePhase.FAILED,permissionDenied=!permitted,problem=if(!permitted)"Microphone permission is required after Call Codex" else "Codex Voice is unavailable. Check your PC connection.")};return@launch
+        }
+        CallRuntime.update{LiveCallState(phase=LivePhase.CONNECTING)};connectDeadline=System.currentTimeMillis()+20000
+        request("call.start",mapOf("threadId" to threadId),"outgoing")
+    }
     fun openCurrent() = scope.launch { if (state.value.serviceRunning) return@launch; wantedEvent=null; requestedEvent=null; request("call.current.request", emptyMap(), "current") }
     fun open(eventId: String) = scope.launch {
         val event = PushStore.get(context).state.value.events.find { it.eventId == eventId } ?: return@launch

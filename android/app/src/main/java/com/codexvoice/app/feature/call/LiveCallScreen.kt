@@ -28,36 +28,39 @@ import com.codexvoice.app.core.speech.*
 import com.codexvoice.app.core.conversation.*
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable fun LiveCallScreen(state: LiveCallState, remote: ClientState?, onAnswer: () -> Unit, onDecline: () -> Unit,
     onEnd: () -> Unit, onMute: () -> Unit, onSpeaker: () -> Unit, onTone: () -> Unit,
     onReturn: () -> Unit, onResults: () -> Unit, onPermissions: () -> Unit, ringEnabled: Boolean = false,
     speech: SpeechUiState = SpeechUiState(), onRepeat: () -> Unit = {}, onStopSpeech: () -> Unit = {}, onFinishSpeech: () -> Unit = {},
-    conversation:ConversationState=ConversationState(),onConfirm:(String)->Unit={},onCancel:(String)->Unit={},onCorrect:(String,String)->Unit={_,_->},onSelect:(String)->Unit={},onControls:()->Unit={}) {
+    conversation:ConversationState=ConversationState(),onConfirm:(String)->Unit={},onCancel:(String)->Unit={},onCorrect:(String,String)->Unit={_,_->},onSelect:(String)->Unit={},onControls:()->Unit={},onChat:()->Unit={}) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val ringer = remember(state.offer?.callId) { IncomingCallRinger(context, state.offer?.expiresAt ?: 0) }
     DisposableEffect(ringer, lifecycle, state.phase, ringEnabled) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && state.phase == LivePhase.OFFERED) ringer.start(ringEnabled)
+            if (event == Lifecycle.Event.ON_RESUME && state.phase == LivePhase.OFFERED && !TelecomRuntime.claimed) ringer.start(ringEnabled)
             if (event == Lifecycle.Event.ON_PAUSE) ringer.pause()
         }
         lifecycle.addObserver(observer)
-        if (state.phase == LivePhase.OFFERED && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) ringer.start(ringEnabled)
+        if (state.phase == LivePhase.OFFERED && !TelecomRuntime.claimed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) ringer.start(ringEnabled)
         else ringer.pause()
         onDispose { lifecycle.removeObserver(observer); ringer.pause() }
     }
+    var details by remember(state.offer?.callId){mutableStateOf(false)}
+    LaunchedEffect(conversation.proposal?.id){if(conversation.proposal!=null)details=true}
     var clock by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
     LaunchedEffect(state.offer?.callId) { while (true) { delay(1000); clock = SystemClock.elapsedRealtime() } }
     val duration = if (state.activeAt == 0L) 0 else ((if (state.endedAt > 0) state.endedAt else clock) - state.activeAt).coerceAtLeast(0) / 1000
     val task = remote?.snapshot?.threads?.find { it.id == state.offer?.threadId }?.label ?: "Your workspace"
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp, vertical = 24.dp),
+        Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 28.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
             // Native code mark inspired by the product name; no external logo asset.
             Icon(Icons.Default.Code, "Codex Voice", Modifier.size(38.dp), tint = MaterialTheme.colorScheme.onSurface)
             Spacer(Modifier.height(12.dp))
             Text("Codex Voice", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(64.dp))
+            Spacer(Modifier.weight(1f))
             Text(task, style = MaterialTheme.typography.headlineLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(12.dp))
             Text(when (state.phase) {
@@ -83,12 +86,12 @@ import kotlinx.coroutines.delay
             Spacer(Modifier.height(12.dp))
             Text(if (state.offer?.mode == "mock") "Simulated task · Audio only" else "Private audio", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(if(conversation.enabled)"Voice instructions need confirmation" else "Local speech", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if(state.phase==LivePhase.ACTIVE)TextButton(onControls){Text("Task controls")}
+
             if (state.problem.isNotEmpty()) {
                 Spacer(Modifier.height(16.dp))
                 Text(state.problem, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
             }
-            Spacer(Modifier.height(64.dp))
+            Spacer(Modifier.weight(1f))
             when (state.phase) {
                 LivePhase.OFFERED -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(48.dp)) {
@@ -106,6 +109,34 @@ import kotlinx.coroutines.delay
                 }
                 LivePhase.ACTIVE -> {
                     Text(speechLabel(state.capturing,state.muted,speech), style = MaterialTheme.typography.titleMedium)
+                    speech.transcript.lastOrNull()?.let{Text(it.text,maxLines=2,overflow=TextOverflow.Ellipsis)}
+                    Row{TextButton({details=true}){Text("Conversation")};TextButton(onChat){Text("Text chat")}}
+                    Spacer(Modifier.weight(1f))
+                    Spacer(Modifier.height(20.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                        CallControl(if (state.muted) "Unmute" else "Mute", if (state.muted) Icons.Default.MicOff else Icons.Default.Mic,
+                            onMute, if (state.muted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            if (state.muted) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface)
+                        CallControl(if (state.speaker) "Earpiece" else "Speaker", Icons.AutoMirrored.Filled.VolumeUp, onSpeaker,
+                            if (state.speaker) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            if (state.speaker) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
+                            description = if (state.speaker) "Use earpiece" else "Use speaker", enabled = state.routeSupported)
+                    }
+                    Spacer(Modifier.height(28.dp))
+                    CallControl("Hang up", Icons.Default.CallEnd, onEnd, Color(0xFFFF453A), Color.White)
+                    Spacer(Modifier.height(20.dp))
+
+                }
+                else -> {
+                    if (duration > 0) Text("%02d:%02d".format(duration / 60, duration % 60), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(16.dp))
+                    FilledTonalButton(onReturn) { Text("Return to dashboard") }
+                    if (state.offer != null) TextButton(onResults) { Text("View task results") }
+                }
+            }
+        }
+        if(details)ModalBottomSheet(onDismissRequest={details=false}){Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp)){
+                    Text("Conversation",style=MaterialTheme.typography.titleLarge)
                     ConversationPanel(conversation,remote?.snapshot?.threads ?: emptyList(),onConfirm,onCancel,onCorrect,onSelect)
                     if (speech.summary.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
@@ -131,29 +162,11 @@ import kotlinx.coroutines.delay
                         TextButton(onStopSpeech,enabled=speech.speaking || speech.phase=="speaking") { Text("Stop speaking") }
                     }
                     TextButton(onFinishSpeech,enabled=state.capturing && !speech.speaking) { Text("Finish speaking") }
-                    Spacer(Modifier.height(20.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
-                        CallControl(if (state.muted) "Unmute" else "Mute", if (state.muted) Icons.Default.MicOff else Icons.Default.Mic,
-                            onMute, if (state.muted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerHigh,
-                            if (state.muted) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface)
-                        CallControl(if (state.speaker) "Earpiece" else "Speaker", Icons.AutoMirrored.Filled.VolumeUp, onSpeaker,
-                            if (state.speaker) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceContainerHigh,
-                            if (state.speaker) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
-                            description = if (state.speaker) "Use earpiece" else "Use speaker", enabled = state.routeSupported)
-                    }
-                    Spacer(Modifier.height(28.dp))
-                    CallControl("Hang up", Icons.Default.CallEnd, onEnd, Color(0xFFFF453A), Color.White)
-                    Spacer(Modifier.height(20.dp))
-                    TextButton(onTone, Modifier.semantics { contentDescription = "Play quiet PC test tone" }) { Text("Test audio") }
-                }
-                else -> {
-                    if (duration > 0) Text("%02d:%02d".format(duration / 60, duration % 60), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(16.dp))
-                    FilledTonalButton(onReturn) { Text("Return to dashboard") }
-                    if (state.offer != null) TextButton(onResults) { Text("View task results") }
-                }
-            }
-        }
+
+                    TextButton(onControls){Text("Task controls")}
+                    TextButton(onTone){Text("Diagnostic audio tone")}
+                    TextButton({details=false}){Text("Back to call")}
+        }}
     }
 }
 

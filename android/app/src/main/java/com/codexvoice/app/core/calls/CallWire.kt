@@ -26,7 +26,7 @@ object CallWire {
         keys(p, setOf("callId","eventId","threadId","turnId","kind","mode","createdAt","expiresAt","acceptedAt","endedAt","state","muted","reason"))
         val id = string(p, "callId", 36); require(id.matches(Regex("[a-f0-9-]{36}")))
         val event = string(p, "eventId", 64); require(event.matches(Regex("[a-f0-9]{64}")))
-        val kind = string(p, "kind", 16); require(kind in setOf("completed","failed","interrupted","approval","review"))
+        val kind = string(p, "kind", 16); require(kind in setOf("completed","failed","interrupted","approval","review","conversation"))
         val mode = string(p, "mode", 4); require(mode in setOf("mock","real"))
         val state = string(p, "state", 16); require(state in setOf("offered","connecting","active","reconnecting","ended","declined","expired","failed"))
         return CallOffer(id, event, string(p, "threadId"), string(p, "turnId"), kind, mode, date(p, "createdAt"), date(p, "expiresAt"), nullableDate(p, "acceptedAt"), nullableDate(p, "endedAt"), state, bool(p, "muted"), string(p, "reason"))

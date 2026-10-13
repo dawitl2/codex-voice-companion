@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -22,6 +25,7 @@
         </service>
         <receiver android:name=".core.notifications.DismissNotificationReceiver" android:exported="false" />
         <service android:name=".core.calls.CallAudioService" android:exported="false" android:stopWithTask="true" android:foregroundServiceType="microphone|mediaPlayback" />
+        <service android:name=".core.calls.VoipCallService" android:exported="false" android:foregroundServiceType="phoneCall" />
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

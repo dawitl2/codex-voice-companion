@@ -47,7 +47,8 @@ object RemoteProtocol {
             val correlation = nullableString(root, "correlationId", 128)
             val p = root.getAsJsonObject("payload") ?: error("payload")
             val snapshot = if (type in snapshotTypes) snapshot(p) else {
-                if(type.startsWith("control."))ControlWire.validate(type,p)
+                if(type.startsWith("chat."))com.codexvoice.app.core.conversation.ChatWire.validate(type,p)
+                else if(type.startsWith("control."))ControlWire.validate(type,p)
                 else if (type.startsWith("call.")) CallWire.validateResponse(type, p)
                 else if (type.startsWith("speech.")) SpeechWire.validate(type, p)
                 else if (type.startsWith("conversation.")) ConversationWire.validate(type, p)

@@ -19,6 +19,7 @@ internal class CompanionRuntime private constructor(context: Context) {
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var owners = 0
+    private var invitationOwners = 0
     val client = RemoteClient(scope, OkHttpSocketFactory(), KeystoreCredentialStore(context))
     private val mode = context.getSharedPreferences("connection-mode", Context.MODE_PRIVATE)
     val repository = CompanionTaskRepository(client, scope, mode.getBoolean("demo", false),
@@ -28,12 +29,15 @@ internal class CompanionRuntime private constructor(context: Context) {
     val calls = LiveCallController(context, client, preferences, scope)
     val speech = SpeechSessionController(context, client, preferences, scope)
     val controls = TaskControlController(client, scope)
+    val chat = com.codexvoice.app.core.conversation.ChatController(client,scope)
     init {
         scope.launch { CallRuntime.state.collect {
-            client.activeCall(it.serviceRunning)
+            client.activeCall(it.serviceRunning || invitationOwners > 0)
             if (!it.serviceRunning) closeIfUnowned()
         } }
     }
+    fun holdInvitation() { synchronized(CompanionRuntime::class.java) { invitationOwners++ }; client.activeCall(true) }
+    fun releaseInvitation() { synchronized(CompanionRuntime::class.java) { invitationOwners=(invitationOwners-1).coerceAtLeast(0) }; client.activeCall(CallRuntime.state.value.serviceRunning || invitationOwners > 0); release() }
     fun release() {
         synchronized(CompanionRuntime::class.java) { owners = (owners - 1).coerceAtLeast(0) }
         // Rotation attaches the replacement before retiring the old process runtime.

@@ -56,6 +56,12 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
     val speechState by viewModel.speechState.collectAsStateWithLifecycle()
     val conversationState by viewModel.conversationState.collectAsStateWithLifecycle()
     val controlState by viewModel.controlState.collectAsStateWithLifecycle()
+    val chatState by viewModel.chatState.collectAsStateWithLifecycle()
+    val pendingAnswer by viewModel.pendingIncomingAnswer.collectAsStateWithLifecycle()
+    var chatOpen by remember{mutableStateOf(false)}
+    var outgoingThread by remember{mutableStateOf<String?>(null)}
+    LaunchedEffect(liveCall.phase){if(liveCall.phase==LivePhase.OFFERED){chatOpen=false;viewModel.hideChat()}}
+    val openChat={val id=liveCall.offer?.threadId?:dashboard.remote?.snapshot?.selectedThreadId;if(id!=null)viewModel.openChat(id);chatOpen=true}
     var controlsOpen by remember{mutableStateOf(false)}
     val openControls={val id=conversationState.selection?.threadId?:dashboard.remote?.snapshot?.selectedThreadId?:dashboard.remote?.snapshot?.threads?.firstOrNull()?.id;if(id!=null){viewModel.openControls(id);controlsOpen=true}}
     val context = LocalContext.current
@@ -70,7 +76,7 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
             if (asked.edit().putBoolean("asked", true).commit()) { pendingEnable = true; permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
         } else viewModel.setNotifications(value)
     }
-    val microphoneLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> viewModel.answerLiveCall(granted) }
+    val microphoneLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> val target=outgoingThread;outgoingThread=null;if(target!=null)viewModel.callCodex(target,granted)else viewModel.answerLiveCall(granted) }
     val answerAudio = {
         val permitted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         val asked = context.getSharedPreferences("microphone-permission", android.content.Context.MODE_PRIVATE)
@@ -78,10 +84,19 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
             if (asked.edit().putBoolean("asked", true).commit()) microphoneLauncher.launch(Manifest.permission.RECORD_AUDIO)
         } else viewModel.answerLiveCall(permitted)
     }
+    val callCodex={
+        val id=dashboard.remote?.snapshot?.selectedThreadId
+        if(id==null){chatOpen=true}else{
+            val permitted=ContextCompat.checkSelfPermission(context,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED
+            val asked=context.getSharedPreferences("microphone-permission",android.content.Context.MODE_PRIVATE)
+            if(!permitted&&!asked.getBoolean("asked",false)){if(asked.edit().putBoolean("asked",true).commit()){outgoingThread=id;microphoneLauncher.launch(Manifest.permission.RECORD_AUDIO)}}else viewModel.callCodex(id,permitted)
+        }
+    }
     val nav = rememberNavController()
     val backStack by nav.currentBackStackEntryAsState()
     val reduceMotion = prefs.reduceMotion || !ValueAnimator.areAnimatorsEnabled()
     val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(pendingAnswer,liveCall.phase){if(pendingAnswer!=null&&liveCall.phase==LivePhase.OFFERED&&liveCall.offer?.eventId==pendingAnswer&&lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)){viewModel.consumeIncomingAnswer();answerAudio()}}
     DisposableEffect(lifecycleOwner, viewModel, dashboard.demoMode) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) { viewModel.foreground(true); viewModel.notificationSystemChanged() }
@@ -114,7 +129,7 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))) },
                 ringEnabled = prefs.notificationsEnabled && prefs.notificationSound, speech = speechState,
                 onRepeat = viewModel::repeatSummary, onStopSpeech = viewModel::stopSpeaking, onFinishSpeech = viewModel::finishSpeaking,
-                conversation=conversationState,onConfirm=viewModel::confirmVoice,onCancel=viewModel::cancelVoice,onCorrect=viewModel::correctVoice,onSelect=viewModel::selectVoiceThread,onControls=openControls)
+                conversation=conversationState,onConfirm=viewModel::confirmVoice,onCancel=viewModel::cancelVoice,onCorrect=viewModel::correctVoice,onSelect=viewModel::selectVoiceThread,onControls=openControls,onChat=openChat)
         } else if (notification.alert != null) {
             BackHandler { viewModel.dismissNotification() }
             TaskAlertScreen(notification, dashboard.remote, viewModel::viewNotificationResults, viewModel::dismissNotification, viewModel::connectPc)
@@ -148,7 +163,7 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 NavHost(nav, startDestination = "home", modifier = Modifier.padding(padding),
                     enterTransition = { fadeIn(tween(if (reduceMotion) 0 else 180)) },
                     exitTransition = { fadeOut(tween(if (reduceMotion) 0 else 120)) }) {
-                    composable("home") { DashboardScreen(dashboard, reduceMotion, viewModel::previewCall, { navigate("history") }, { navigate("settings") }, viewModel::openLiveCall,openControls) }
+                    composable("home") { DashboardScreen(dashboard, reduceMotion, viewModel::previewCall, { navigate("history") }, { navigate("settings") }, viewModel::openLiveCall,openControls,callCodex,openChat,{id->viewModel.openChat(id);viewModel.selectChat(id);chatOpen=true}) }
                     composable("history") { HistoryScreen(dashboard.history, reduceMotion, viewModel::clearHistory, viewModel::resetDemo, dashboard.demoMode, dashboard.connection, dashboard.remote?.snapshot?.mode == "mock") }
                     composable("settings") { SettingsScreen(prefs, viewModel::setTheme, viewModel::setCalling, viewModel::setReduceMotion,
                         dashboard.remote, dashboard.demoMode, viewModel::selectDemo, viewModel::pair, viewModel::connectPc, viewModel::disconnectPc, viewModel::forgetPc,
@@ -158,6 +173,7 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 }
             }
         }
+        if(chatOpen){BackHandler{chatOpen=false;viewModel.hideChat()};com.codexvoice.app.feature.conversation.ChatScreen(chatState,dashboard.remote?.snapshot?.threads?:emptyList(),viewModel::selectChat,viewModel::sendChat,{chatOpen=false;viewModel.hideChat()},{val id=chatState.threadId;if(id.isNotBlank()){viewModel.openControls(id);controlsOpen=true}})}
         if(controlsOpen)com.codexvoice.app.feature.control.TaskControlSheet(controlState,dashboard.remote?.snapshot?.threads?:emptyList(),viewModel::openControls,
             {controlsOpen=false;viewModel.hideControls()},viewModel::interruptTask,viewModel::queueTask,viewModel::confirmControl,viewModel::cancelControl,
             viewModel::denyApproval,viewModel::registerReviewer,viewModel::approveOnce,viewModel::authorizedApproval)
