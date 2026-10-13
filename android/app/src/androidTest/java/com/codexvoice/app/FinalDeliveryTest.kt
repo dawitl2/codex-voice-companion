@@ -31,7 +31,7 @@ class FinalDeliveryTest{
     private val context get()=instrumentation.targetContext
     private fun until(label:String,timeout:Long=45000,p:()->Boolean){val end=SystemClock.elapsedRealtime()+timeout;while(!p()){check(SystemClock.elapsedRealtime()<end){"$label timed out; call=${CallRuntime.state.value.phase}; problem=${CallRuntime.state.value.problem}"};Thread.sleep(100)};println("Verified: $label")}
     private fun text(value:String)=try{compose.onAllNodesWithText(value,substring=true).fetchSemanticsNodes().isNotEmpty()}catch(_:IllegalStateException){false}
-    private fun click(value:String)=compose.onNodeWithText(value).performScrollTo().performClick()
+    private fun click(value:String)=compose.onNodeWithText(value).performClick()
     @Test fun realDesktopOutgoingTextCodingIncomingAndCleanup()=runBlocking{
         assumeTrue(InstrumentationRegistry.getArguments().getString("finalDelivery")=="true")
         check(!context.getSystemService(KeyguardManager::class.java).isKeyguardLocked){"User must unlock phone"}
@@ -57,6 +57,7 @@ class FinalDeliveryTest{
             compose.onNode(hasText("Home") and hasClickAction()).performClick();click("Call Codex")
             until("Phone-initiated private microphone audio"){CallRuntime.state.value.phase==LivePhase.ACTIVE&&CallRuntime.state.value.capturing&&ConversationRuntime.state.value.enabled}
             outgoing=true;until("Core Telecom owns this outgoing call"){TelecomRuntime.control!=null}
+            until("PC receives actual outgoing microphone frames"){CallRuntime.state.value.pcReceivedFrames>=20}
             Thread.sleep(1500);stage("outgoing-audio-active")
             compose.onNodeWithContentDescription("Use speaker").performClick();until("System speaker route"){CallRuntime.state.value.speaker}
             click("Hang up");until("Outgoing microphone released"){!CallRuntime.state.value.serviceRunning&&!CallRuntime.state.value.capturing}
