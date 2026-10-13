@@ -2,7 +2,7 @@ const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let state = {}, initialized = false, tab = 'dashboard', busy = false;
 async function action(type, payload = {}) { $('error').textContent = ''; try { return await window.companion.action(type,payload); } catch(e) { $('error').textContent=e.message; throw e; } }
-function row(label, yes, text) { return `<div class="row"><span>${esc(label)}</span><span class="${yes?'good':'bad'}">${esc(text)}</span></div>`; }
+function row(label, yes, text) { return `<div class="row"><span>${esc(label)}</span><span class="${yes===null?'':yes?'good':'bad'}">${esc(text)}</span></div>`; }
 function render(s) {
   state = s; const cfg=s.configuration||{};
   if (!initialized) { $('writable').checked=cfg.writable===true; $('notifications').checked=cfg.notifications!==false; $('spark').checked=cfg.sparkConfirmed===true; initialized=true; }
@@ -14,15 +14,15 @@ function render(s) {
     row('Authentication',s.codexConnected,s.authentication||'Not checked')+row('Tailscale',s.tailscale,s.tailscale?'Available':'Not checked')+
     row('Firebase',s.firebase,s.firebase?'Ready':s.firebaseDiagnostic||'Unavailable')+row('Local speech',s.speech?.engine==='ready',s.speech?.engine||'Not checked')+
     row('Phone',s.connectedPhones>0,s.connectedPhones?`${s.connectedPhones} authenticated`:'Offline');
-  $('events').innerHTML=(s.events||[]).slice(-6).reverse().map(e=>row(new Date(e.timestamp).toLocaleTimeString(),false,e.summary)).join('')||'<p>No recent activity.</p>';
+  $('events').innerHTML=(s.events||[]).slice(-6).reverse().map(e=>row(new Date(e.timestamp).toLocaleTimeString(),null,e.summary)).join('')||'<p>No recent activity.</p>';
   $('threads').innerHTML=(s.threads||[]).map(t=>`<button class="thread ${t.id===s.selectedThreadId?'chosen':''}" data-select="${esc(t.id)}">${esc(t.label)}<small><br>${esc(t.model)}</small></button>`).join('')||'<p>Create your first managed conversation.</p>';
   const t=s.threads?.find(t=>t.id===s.selectedThreadId), turns=(s.turns||[]).filter(x=>x.threadId===s.selectedThreadId);
   $('chat-heading').textContent=t?.label||'Choose a conversation'; $('task-state').textContent=turns.at(-1)?.status||'Ready';
   $('messages').innerHTML=turns.map(x=>`<div class="message"><small>You · ${esc(x.status)}</small>${esc(x.instruction||'Earlier instruction unavailable in local history')}</div><div class="message response"><small>Codex</small>${esc(x.finalResponse||'Waiting for the actual response…')}</div>`).join('');
   $('send').disabled=!s.codexConnected||!t||busy||['running','starting','awaitingApproval','unknown'].includes(turns.at(-1)?.status);
   $('create').disabled=!s.codexConnected||busy; $('pair').disabled=!s.running||busy; $('interrupt').disabled=!s.codexConnected||!['running','starting','awaitingApproval'].includes(turns.at(-1)?.status);
-  $('phones').innerHTML=(s.paired||[]).map(d=>`<div class="row"><div><strong>${esc(d.name)}</strong><p>${d.connected?'Authenticated · connected':'Paired · offline'} · ${d.registered?'Notifications registered':'Registration pending'}</p><small>Last connection ${d.lastConnectedAt?esc(new Date(d.lastConnectedAt).toLocaleString()):'not observed this run'}</small></div><button data-revoke="${esc(d.id)}">Revoke…</button></div>`).join('')||'<p>No phone paired.</p>';
-  $('operations').innerHTML=(s.operations||[]).map(o=>row(o.device+' · '+o.kind,false,o.state+(o.text?' · '+o.text:''))).join('')||'<p>No pending follow-up.</p>';
+  $('phones').innerHTML=(s.paired||[]).map(d=>`<div class="row"><div><strong>${esc(d.name)}</strong><p>${d.connected?'Authenticated · connected':'Paired · offline'} · ${d.registered?'Notifications registered':'Registration pending'}</p><small>Last connection ${d.lastConnectedAt?esc(new Date(d.lastConnectedAt).toLocaleString()):'not observed this run'}</small></div><button data-revoke="${esc(d.id)}">Revoke…</button></div>`).join('')||(s.running?'<p>No phone paired.</p>':'<p>Start Companion to load paired phones.</p>');
+  $('operations').innerHTML=(s.operations||[]).map(o=>row(o.device+' · '+o.kind,null,o.state+(o.text?' · '+o.text:''))).join('')||'<p>No pending follow-up.</p>';
   $('calls').innerHTML=row('Media sessions',s.mediaSessions>0,s.mediaSessions||0)+(s.calls||[]).slice(-4).map(c=>row(c.kind||'Call',c.state==='active',c.state)).join('');
   $('approvals-list').innerHTML=(s.approvals||[]).map(a=>`<div class="message"><strong>${esc(a.method)}</strong><pre>${esc(a.preview)}</pre><p>${esc(a.scope)} · ${esc(a.reason)}</p><small>Deadline ${esc(new Date(a.expiresAt).toLocaleTimeString())}</small><div class="actions"><button data-approve="${esc(a.id)}">Approve this action…</button><button data-deny="${esc(a.id)}">Deny</button><button data-nominate="${esc(a.id)}">Nominate for phone review</button></div></div>`).join('')||'<p>No pending approvals.</p>';
   $('reviewers').innerHTML=(s.reviewers||[]).map(r=>`<pre>${esc(r.fingerprint)}</pre><button data-trust="${esc(r.deviceId)}" data-fingerprint="${esc(r.fingerprint)}">${r.trusted?'Trusted':'Trust compared fingerprint…'}</button>`).join('')||'<p>Enable secure review on the paired phone to register its public key.</p>';
