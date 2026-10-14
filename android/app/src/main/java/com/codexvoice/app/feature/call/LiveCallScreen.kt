@@ -69,8 +69,8 @@ import kotlinx.coroutines.delay
             Text(when(state.phase) {
                 LivePhase.OFFERED -> "Incoming call"
                 LivePhase.ACTIVE -> "On call"
-                LivePhase.CONNECTING -> "Connecting…"
-                LivePhase.RECONNECTING -> "Reconnecting…"
+                LivePhase.CONNECTING -> "Connectingâ€¦"
+                LivePhase.RECONNECTING -> "Reconnectingâ€¦"
                 LivePhase.EXPIRED -> "Invitation expired"
                 LivePhase.DECLINED -> "Declined"
                 else -> "Call ended"
@@ -108,7 +108,7 @@ import kotlinx.coroutines.delay
                     Surface(shape=RoundedCornerShape(22.dp),color=MaterialTheme.colorScheme.surface.copy(alpha=.8f)) {
                         Row(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                             Column(Modifier.weight(1f)) {
-                                Text(if(proposal!=null) {if(remaining!=null) "You said · sending" else "Review instruction"} else if(speech.provisional!=null) "Live · provisional" else speechLabel(state.capturing,state.muted,speech),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(if(proposal!=null) {if(remaining!=null) "You said Â· sending" else "Review instruction"} else if(speech.provisional!=null) "Live Â· provisional" else speechLabel(state.capturing,state.muted,speech),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                                 Text(proposal?.text ?: speech.provisional?.text ?: conversation.entries.lastOrNull()?.text ?: speech.transcript.lastOrNull()?.text ?: "What would you like to do?",maxLines=3,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodyLarge)
                             }
                             if(remaining!=null) Box(Modifier.size(40.dp),contentAlignment=Alignment.Center) {
@@ -126,7 +126,7 @@ import kotlinx.coroutines.delay
                         if(speech.speaking) TextButton(onStopSpeech){Text("Stop speaking")}
                         else TextButton({if(speech.provisional!=null)onEditDictation();details=true}){Text(if(speech.provisional!=null) "Review" else "Conversation")}
                     }
-                    Text(if(conversation.autoSend) "Auto-send · 3-second review" else "Manual review",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if(conversation.autoSend) "Auto-send Â· 3-second review" else "Manual review",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                     if(conversation.phase in setOf("submitting","running","accepted","awaitingApproval","busy","unknown","rejected","completed","failed","cancelled")) Text(conversationLabel(conversation),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(if(compact) 16.dp else 28.dp))
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {

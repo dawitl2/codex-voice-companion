@@ -65,7 +65,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
             Surface(Modifier.fillMaxWidth().clickable(onClick=onHistory),shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surface.copy(alpha=.8f)) {
                 Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)) {
                     Icon(Icons.Default.Call,null,tint=Color(0xFF22BF91),modifier=Modifier.size(32.dp))
-                    Column(Modifier.weight(1f)) { Text("Recent calls",style=MaterialTheme.typography.titleMedium);recentCalls.first().let { Text(it.status+" · "+java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(it.time)),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
+                    Column(Modifier.weight(1f)) { Text("Recent calls",style=MaterialTheme.typography.titleMedium);recentCalls.first().let { Text(it.status+" Â· "+java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(it.time)),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
                     Icon(Icons.Default.ChevronRight,null,tint=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

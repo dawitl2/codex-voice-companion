@@ -6,7 +6,7 @@ function row(label, yes, text) { return `<div class="row"><span>${esc(label)}</s
 function render(s) {
   state = s; const cfg=s.configuration||{};
   if (!initialized) { $('writable').checked=cfg.writable===true; $('notifications').checked=cfg.notifications!==false; $('spark').checked=cfg.sparkConfirmed===true; initialized=true; }
-  $('project').textContent=s.project||cfg.project||'Choose a project'; $('policy').textContent=s.policy||'Stopped · project permissions apply at Start';
+  $('project').textContent=cfg.project||s.project||'Choose a project'; $('policy').textContent=s.policy?'Selected conversation: '+s.policy:'Stopped · project permissions apply at Start';
   $('footer-state').textContent=s.starting?'Starting…':s.running?'Companion running':'Stopped';
   $('start').disabled=busy||s.running||s.starting; $('stop').disabled=busy||(!s.running&&!s.starting); $('choose-project').disabled=!!s.running||!!s.starting;
   $('writable').disabled=!!s.running||!!s.starting; $('notifications').disabled=!!s.running||!!s.starting; $('spark').disabled=!!s.running||!!s.starting;
@@ -20,6 +20,8 @@ function render(s) {
   $('stored-threads').innerHTML=(s.storedConversations||[]).filter(t=>!s.threads?.some(m=>m.id===t.id)).slice(0,30).map(t=>`<div class="message"><strong>${esc(t.label)}</strong><small>${esc(t.project)} · ${esc(t.source)} · ${esc(t.updatedAt)}</small><p>${esc(t.reason||'Stored session. Close its original Codex client before handoff.')}</p><button data-resume="${esc(t.id)}" ${t.eligible?'':'disabled'}>Resume original conversation</button></div>`).join('');
   $('latest').disabled=!s.running||busy; $('discover').disabled=!s.running||busy;
   const t=s.threads?.find(t=>t.id===s.selectedThreadId), turns=(s.turns||[]).filter(x=>x.threadId===s.selectedThreadId);
+  $('current-conversation').textContent=t?.label||'Ready when you are.';
+  $('current-project').textContent=t?t.cwd.split(/[\\/]/).filter(Boolean).at(-1)+' · '+(turns.at(-1)?.status||'Ready'):'Start Companion to synchronize your last eligible conversation.';
   $('chat-heading').textContent=t?.label||'Choose a conversation'; $('task-state').textContent=turns.at(-1)?.status||'Ready';
   $('messages').innerHTML=turns.map(x=>`<div class="message"><small>You · ${esc(x.status)}</small>${esc(x.instruction||'Earlier instruction unavailable in local history')}</div><div class="message response"><small>Codex</small>${esc(x.finalResponse||'Waiting for the actual response…')}</div>`).join('');
   $('send').disabled=!s.codexConnected||!t||busy||['running','starting','awaitingApproval','unknown'].includes(turns.at(-1)?.status);

@@ -3,7 +3,9 @@ package com.codexvoice.app.core.designsystem
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
@@ -22,7 +24,7 @@ fun CompanionBackdrop(modifier: Modifier = Modifier, content: @Composable BoxSco
             drawRect(Brush.radialGradient(listOf(Color(0xFFC69AFF).copy(alpha), Color.Transparent), Offset(size.width, size.height * .7f), size.width * .85f))
             drawRect(Brush.radialGradient(listOf(Color(0xFF9FE8F7).copy(alpha * .7f), Color.Transparent), Offset(size.width * .45f, size.height * .7f), size.width * .7f))
         }
-        content()
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) { content() }
     }
 }
 
