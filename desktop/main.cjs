@@ -14,14 +14,14 @@ function updateTray(){
   const imagePath=path.join(__dirname,latest.running?'tray-running.png':'tray-stopped.png');if(fs.existsSync(imagePath))tray.setImage(nativeImage.createFromPath(imagePath));
   tray.setContextMenu(Menu.buildFromTemplate([
     {label:'Open Codex Voice',click:restore},{label:status,enabled:false},{type:'separator'},
-    {label:'Start Companion',enabled:!worker&&!stopping,click:()=>{void start({writable:config.writable,notifications:config.notifications,sparkConfirmed:config.sparkConfirmed}).catch(e=>{latest.error=e.message;restore();});}},
+    {label:'Start Companion',enabled:!worker&&!stopping&&!latest.starting,click:()=>{void start({writable:config.writable,notifications:config.notifications,sparkConfirmed:config.sparkConfirmed}).catch(e=>{latest.error=e.message;restore();});}},
     {label:'STOP ALL',enabled:!!worker&&!stopping,click:()=>{void stop(true);}},
     {type:'separator'},{label:'Quit Completely',click:()=>{void quitCompletely();}}
   ]));
 }
 async function quitCompletely(){if(await stop(true)===false)return;quitting=true;tray?.destroy();tray=undefined;window?.destroy();app.quit();}
 const permitted = new Map(Object.entries({ state: [], start: ['writable','notifications','sparkConfirmed'], stop: [], quit: [], project: [], create: ['label'], select: ['threadId'],
-  send: ['threadId','text'], interrupt: ['threadId'], pair: [], revoke: ['deviceId'], nominate: ['approvalId'], decision: ['approvalId','accept'], trust: ['deviceId','fingerprint'] }));
+  send: ['threadId','text'], interrupt: ['threadId'], pair: [], revoke: ['deviceId'], nominate: ['approvalId'], decision: ['approvalId','accept'], trust: ['deviceId','fingerprint'],discover:[],resumeStored:['threadId'],latest:[] }));
 function validAction(type, value) {
   const keys = permitted.get(type);
   if (!keys || !value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !keys.includes(k))) throw Error('Unsupported action');

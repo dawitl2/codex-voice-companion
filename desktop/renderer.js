@@ -16,6 +16,9 @@ function render(s) {
     row('Phone',s.connectedPhones>0,s.connectedPhones?`${s.connectedPhones} authenticated`:'Offline');
   $('events').innerHTML=(s.events||[]).slice(-6).reverse().map(e=>row(new Date(e.timestamp).toLocaleTimeString(),null,e.summary)).join('')||'<p>No recent activity.</p>';
   $('threads').innerHTML=(s.threads||[]).map(t=>`<button class="thread ${t.id===s.selectedThreadId?'chosen':''}" data-select="${esc(t.id)}">${esc(t.label)}<small><br>${esc(t.model)}</small></button>`).join('')||'<p>Create your first managed conversation.</p>';
+  $('selection-diagnostic').textContent=s.selectionDiagnostic||'Start Companion to discover your stored Codex conversations.';
+  $('stored-threads').innerHTML=(s.storedConversations||[]).filter(t=>!s.threads?.some(m=>m.id===t.id)).slice(0,30).map(t=>`<div class="message"><strong>${esc(t.label)}</strong><small>${esc(t.project)} · ${esc(t.source)} · ${esc(t.updatedAt)}</small><p>${esc(t.reason||'Stored session. Close its original Codex client before handoff.')}</p><button data-resume="${esc(t.id)}" ${t.eligible?'':'disabled'}>Resume original conversation</button></div>`).join('');
+  $('latest').disabled=!s.running||busy; $('discover').disabled=!s.running||busy;
   const t=s.threads?.find(t=>t.id===s.selectedThreadId), turns=(s.turns||[]).filter(x=>x.threadId===s.selectedThreadId);
   $('chat-heading').textContent=t?.label||'Choose a conversation'; $('task-state').textContent=turns.at(-1)?.status||'Ready';
   $('messages').innerHTML=turns.map(x=>`<div class="message"><small>You · ${esc(x.status)}</small>${esc(x.instruction||'Earlier instruction unavailable in local history')}</div><div class="message response"><small>Codex</small>${esc(x.finalResponse||'Waiting for the actual response…')}</div>`).join('');
@@ -35,11 +38,13 @@ $('start').onclick=()=>perform(()=>action('start',{writable:$('writable').checke
 $('stop').onclick=()=>perform(()=>action('stop')); $('quit').onclick=()=>action('quit').catch(()=>{});
 $('choose-project').onclick=()=>perform(async()=>{await action('project');initialized=false;});
 $('create').onclick=()=>perform(async()=>{await action('create',{label:$('thread-label').value.trim()||'New conversation'});$('thread-label').value='';});
+ $('discover').onclick=()=>perform(()=>action('discover'));$('latest').onclick=()=>perform(()=>action('latest'));
 $('send').onclick=()=>perform(async()=>{await action('send',{threadId:state.selectedThreadId,text:$('instruction').value});$('instruction').value='';});
 $('interrupt').onclick=()=>{if(confirm('Request interruption of this actual task? Wait for the authoritative outcome.'))perform(()=>action('interrupt',{threadId:state.selectedThreadId}));};
 $('pair').onclick=()=>perform(async()=>{const p=await action('pair');$('invitation').hidden=false;$('invitation').innerHTML=`<p>Enter this private address and one-time code in Android Settings → PC monitor.</p><code>${esc(p.endpoint)}</code><strong>${esc(p.code)}</strong><small>Expires ${esc(new Date(p.expiresAt).toLocaleTimeString())}. Never share this invitation.</small>`;setTimeout(()=>{$('invitation').textContent='Invitation expired. Request a fresh one.';},Math.max(0,Date.parse(p.expiresAt)-Date.now()));});
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
   if(b.dataset.select)perform(()=>action('select',{threadId:b.dataset.select}));
+  if(b.dataset.resume&&confirm('Continue this exact original stored Codex conversation? Close its original Codex client first. Its project and supported sandbox are preserved; live session attachment is unavailable.'))perform(()=>action('resumeStored',{threadId:b.dataset.resume}));
   if(b.dataset.revoke&&confirm('Revoke this phone pairing and end its active calls?'))perform(()=>action('revoke',{deviceId:b.dataset.revoke}));
   if(b.dataset.approve&&confirm('Approve this exact action once? Review the complete operation and scope above.'))perform(()=>action('decision',{approvalId:b.dataset.approve,accept:true}));
   if(b.dataset.deny)perform(()=>action('decision',{approvalId:b.dataset.deny,accept:false}));

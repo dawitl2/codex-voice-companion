@@ -25,6 +25,7 @@ data class UserPreferences(
     val speechRate: Float = 1f,
     val speechPitch: Float = 1f,
     val autoSpeakSummary: Boolean = true,
+    val autoSendInstructions: Boolean = true,
 )
 fun TaskStatus.label() = when (this) {
     TaskStatus.RUNNING -> "Running"

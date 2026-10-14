@@ -30,6 +30,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     private val connectionOwned get() = foreground || callActive
     private var invitation: String? = null; private var helloId: String? = null; private var authId: String? = null; private var snapshotId: String? = null
     private var sessionEpoch: String? = null
+    private var latestOnConnect=false
     init {
         scope.launch { for (action in queue) if (!closed) action() }
         post {
@@ -87,6 +88,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         catch (_: Exception) { update(RemoteStatus.STORAGE_ERROR, "Could not remove protected pairing data.") }
     }
     fun refresh() = post { if (authenticated) requestSnapshot() }
+    fun connectLatest(){post{latestOnConnect=true};connect()}
     fun notification(type: String, payload: Map<String, Any> = emptyMap()): String {
         val requestId = UUID.randomUUID().toString()
         post {
@@ -103,7 +105,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
             "call.current.request", "call.offer.request", "call.decline", "call.end", "call.mute", "call.status.request", "call.test-tone" -> "call.status.response"
             "speech.summary.request" -> "speech.summary.response"
             "speech.status.request", "speech.listening", "speech.finish", "speech.playback" -> "speech.status.response"
-            "conversation.status.request", "conversation.confirm", "conversation.cancel", "conversation.correct", "conversation.select" -> "conversation.status.response"
+            "conversation.status.request", "conversation.confirm", "conversation.cancel", "conversation.correct", "conversation.select", "conversation.preferences", "conversation.edit" -> "conversation.status.response"
             else -> return@post
         }
         try { notificationPending[send(type, payload, requestId)] = expected } catch (_: Exception) { fail("unreachable") }
@@ -153,7 +155,7 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         return id
     }
     private fun requestSnapshot() {
-        try { snapshotId = send("state.snapshot.request"); deadline(generation) } catch (_: Exception) { fail("unreachable") }
+        try { snapshotId = send(if(latestOnConnect&&!callActive)"thread.latest.request" else "state.snapshot.request");latestOnConnect=false; deadline(generation) } catch (_: Exception) { fail("unreachable") }
     }
     private fun receive(raw: String) {
         try {

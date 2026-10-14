@@ -58,7 +58,7 @@ class CompanionTaskRepository(private val client: RemoteClient, private val scop
     fun selectDemo(enabled: Boolean) { saveDemo(enabled); mutableDemo.value = enabled; if (enabled) client.disconnect() }
     fun foreground(active: Boolean) = client.foreground(active && !isDemo.value)
     fun pair(address: String, code: String) { if (!isDemo.value) client.pair(address, code) }
-    fun connect() { if (!isDemo.value) { client.foreground(true); client.connect() } }
+    fun connect() { if (!isDemo.value) { client.foreground(true); client.connectLatest() } }
     fun disconnect() = client.disconnect()
     fun forget() = client.forget()
     fun refresh() = client.refresh()

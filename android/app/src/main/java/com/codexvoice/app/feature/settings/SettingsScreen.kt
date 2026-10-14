@@ -73,7 +73,8 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
                 PreferenceSwitch("Offer audio calls", "Task alerts can offer an authenticated private audio session. Answer explicitly starts the microphone.", p.callInvitations, onCallInvitations)
                 Text(callStatus, style = MaterialTheme.typography.bodySmall)
                 PreferenceSwitch("Spoken summaries", "Offline English voice", p.spokenSummaries) { onSpeech(p.copy(spokenSummaries=it)) }
-                PreferenceSwitch("Automatic summary", "Read the summary after Answer", p.autoSpeakSummary) { onSpeech(p.copy(autoSpeakSummary=it)) }
+                PreferenceSwitch("Short call greeting", "Project and current status", p.autoSpeakSummary) { onSpeech(p.copy(autoSpeakSummary=it)) }
+                PreferenceSwitch("Auto-send instructions", "3 seconds to Cancel or Edit", p.autoSendInstructions) { onSpeech(p.copy(autoSendInstructions=it)) }
                 var voicesOpen by remember { mutableStateOf(false) }
                 Box {
                     TextButton({ voicesOpen=true },enabled=speech.voices.isNotEmpty()) { Text(if(p.speechVoice.isEmpty()) "Default offline voice" else speech.voices.find { it.name==p.speechVoice }?.label ?: "Selected offline voice") }

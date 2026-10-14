@@ -16,12 +16,13 @@ class SpeechSessionController(private val context:Context, private val client:Re
     private var summaryRequested=false; private var autoPlayed=false; private var playback="none"; private val startGate=SpeechStartGate()
     private val pending=mutableMapOf<String,String>(); private var polledAt=0L
     private var conversationPolledAt=0L; private var conversationDisabled=false; private var outputSequence=0L
+    private var appliedAutomatic:Boolean?=null;private var editPaused=false
     init {
         scope.launch { preferences.preferences.collect { prefs=it; if(!it.spokenSummaries) stop(); sync() } }
         scope.launch { CallRuntime.state.collect { sync() } }
         scope.launch { SpeechRuntime.state.collect { sync() } }
         scope.launch { ConversationRuntime.state.collect { sync() } }
-        scope.launch { client.state.collect { connected=it.status==RemoteStatus.CONNECTED; if(!connected) { configured=false; pending.clear(); startGate.cancel() }; sync() } }
+        scope.launch { client.state.collect { connected=it.status==RemoteStatus.CONNECTED; if(!connected) { configured=false; appliedAutomatic=null; pending.clear(); startGate.cancel() }; sync() } }
         scope.launch { client.speech.collect { response ->
             val operation=pending.remove(response.correlationId) ?: return@collect
             if (CallRuntime.state.value.phase!=LivePhase.ACTIVE || callId!=CallRuntime.state.value.offer?.callId) return@collect
@@ -34,7 +35,7 @@ class SpeechSessionController(private val context:Context, private val client:Re
             else {
                 val rows=SpeechWire.utterances(response.payload)
                 SpeechRuntime.update { old -> old.copy(phase=response.payload["state"].asString,engine=response.payload["engine"].asString,error=response.payload["error"].asString,
-                    transcript=(old.transcript+rows).distinctBy { it.sequence }.takeLast(8)) }
+                    transcript=(old.transcript+rows).distinctBy { it.sequence }.takeLast(8),provisional=SpeechWire.provisional(response.payload)) }
                 if(operation=="start-playback") {
                     val wanted=startGate.pending
                     if(wanted && prefs.spokenSummaries && SpeechRuntime.state.value.ttsStatus=="ready") CallRuntime.command(context,CallAudioService.SPEAK)
@@ -53,6 +54,7 @@ class SpeechSessionController(private val context:Context, private val client:Re
                 return@collect
             }
             val next=ConversationWire.parse(response.payload)
+            if(editPaused && next.proposal==null && next.phase in setOf("accepted","running","completed","cancelled")){editPaused=false;appliedAutomatic=null}
             if(next.callId==callId)ConversationRuntime.receive(next)
             sync()
         } }
@@ -72,7 +74,7 @@ class SpeechSessionController(private val context:Context, private val client:Re
             if (live.phase == LivePhase.RECONNECTING) {
                 // PC speech/conversation sessions are recreated with the fresh media grant.
                 // Re-enable listening and fetch the summary, without replaying old speech.
-                configured=false; summaryRequested=false; autoPlayed=true; playback="none"
+                configured=false; appliedAutomatic=null; summaryRequested=false; autoPlayed=true; playback="none"
                 pending.clear(); startGate.cancel(); outputSequence=0
             }
             if(live.phase in setOf(LivePhase.IDLE,LivePhase.ENDED,LivePhase.DECLINED,LivePhase.EXPIRED,LivePhase.FAILED)) {
@@ -83,10 +85,12 @@ class SpeechSessionController(private val context:Context, private val client:Re
             return
         }
         val current=live.offer?.callId ?: return
-        if(callId!=current) { callId=current; configured=false; summaryRequested=false; autoPlayed=false; playback="none"; startGate.cancel(); pending.clear();conversationDisabled=false;conversationPolledAt=0;outputSequence=0
+        if(callId!=current) { callId=current; configured=false; appliedAutomatic=null; editPaused=false; summaryRequested=false; autoPlayed=false; playback="none"; startGate.cancel(); pending.clear();conversationDisabled=false;conversationPolledAt=0;outputSequence=0
             if(ConversationRuntime.state.value.callId!=current)ConversationRuntime.clear()
         }
         if(!connected) return
+        val automatic=prefs.autoSendInstructions && !editPaused
+        if(appliedAutomatic!=automatic && !conversationDisabled){appliedAutomatic=automatic;conversationRequest("conversation.preferences",mapOf("automatic" to automatic))}
         if(!configured) { configured=true; request("speech.listening",mapOf("enabled" to true)); request("speech.playback",mapOf("state" to if(SpeechRuntime.state.value.speaking) "started" else "completed"),"playback") }
         if(!summaryRequested) { summaryRequested=true; request("speech.summary.request",operation="summary") }
         val speech=SpeechRuntime.state.value
@@ -101,8 +105,8 @@ class SpeechSessionController(private val context:Context, private val client:Re
             val conversation=ConversationRuntime.state.value
             conversation.entries.firstOrNull{it.sequence>conversation.lastSpokenSequence}?.let{play(it.spoken,it.sequence)}
         }
-        if(System.currentTimeMillis()-polledAt>1000 && pending.values.none { it=="poll" }) { polledAt=System.currentTimeMillis(); request("speech.status.request",mapOf("afterSequence" to (speech.transcript.lastOrNull()?.sequence ?: 0)),"poll") }
-        if(!conversationDisabled && System.currentTimeMillis()-conversationPolledAt>1000 && pending.values.none{it=="conversation-poll"}) {
+        if(System.currentTimeMillis()-polledAt>500 && pending.values.none { it=="poll" }) { polledAt=System.currentTimeMillis(); request("speech.status.request",mapOf("afterSequence" to (speech.transcript.lastOrNull()?.sequence ?: 0)),"poll") }
+        if(!conversationDisabled && System.currentTimeMillis()-conversationPolledAt>(if(ConversationRuntime.state.value.proposal!=null)200 else 1000) && pending.values.none{it=="conversation-poll"}) {
             conversationPolledAt=System.currentTimeMillis();conversationRequest("conversation.status.request",mapOf("afterSequence" to (ConversationRuntime.state.value.entries.lastOrNull()?.sequence ?: 0)),"conversation-poll")
         }
     }
@@ -127,6 +131,8 @@ class SpeechSessionController(private val context:Context, private val client:Re
     fun confirmProposal(id:String)=scope.launch{stopNow();conversationRequest("conversation.confirm",mapOf("confirmationId" to id))}
     fun cancelProposal(id:String)=scope.launch{stopNow();conversationRequest("conversation.cancel",mapOf("confirmationId" to id))}
     fun correctProposal(id:String,text:String)=scope.launch{stopNow();conversationRequest("conversation.correct",mapOf("confirmationId" to id,"text" to text))}
+    fun editProposal(id:String)=scope.launch{conversationRequest("conversation.edit",mapOf("confirmationId" to id))}
+    fun editDictation()=scope.launch{editPaused=true;appliedAutomatic=false;conversationRequest("conversation.preferences",mapOf("automatic" to false));request("speech.finish")}
     fun selectThread(id:String)=scope.launch{stopNow();conversationRequest("conversation.select",mapOf("threadId" to id))}
     fun close() { pending.clear(); scope.cancel() }
 }

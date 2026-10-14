@@ -10,7 +10,7 @@ import com.codexvoice.app.core.remote.RemoteThread
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun ConversationPanel(state:ConversationState,threads:List<RemoteThread>,onConfirm:(String)->Unit,onCancel:(String)->Unit,
-    onCorrect:(String,String)->Unit,onSelect:(String)->Unit) {
+    onCorrect:(String,String)->Unit,onSelect:(String)->Unit,onEdit:(String)->Unit={}) {
     if(!state.enabled)return
     var selectOpen by remember{mutableStateOf(false)}
     Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(10.dp)) {
@@ -24,12 +24,13 @@ import com.codexvoice.app.core.remote.RemoteThread
             Surface(shape=MaterialTheme.shapes.medium,color=MaterialTheme.colorScheme.surfaceContainerHigh){
                 Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text("Send to ${proposal.project}?",style=MaterialTheme.typography.labelLarge)
-                    OutlinedTextField(edited,{if(it.length<=2000)edited=it},label={Text("Proposed instruction")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=5)
+                    if(state.phase=="countdown"||state.phase=="dictating"){Text(proposal.text);TextButton({onEdit(proposal.id)}){Text("Pause to edit")}}
+                    else OutlinedTextField(edited,{if(it.length<=2000)edited=it},label={Text("Proposed instruction")},modifier=Modifier.fillMaxWidth(),minLines=2,maxLines=5)
                     FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                        Button({if(edited==proposal.text)onConfirm(proposal.id)else onCorrect(proposal.id,edited)},enabled=edited.isNotBlank()) {Text(if(edited==proposal.text)"Send instruction" else "Review correction")}
+                        Button({if(edited==proposal.text)onConfirm(proposal.id)else onCorrect(proposal.id,edited)},enabled=edited.isNotBlank()) {Text(if(edited==proposal.text)"Send Now" else "Review correction")}
                         TextButton({onCancel(proposal.id)}){Text("Cancel instruction")}
                     }
-                    Text("Say “yes, send it” or “cancel”. Expires after 45 seconds.",style=MaterialTheme.typography.bodySmall)
+                    Text(if(state.phase=="countdown")"Auto-send is active. Cancel or pause to edit." else "Review, then Send Now or say “yes, send it”.",style=MaterialTheme.typography.bodySmall)
                 }
             }
         }

@@ -5,11 +5,11 @@ import com.codexvoice.app.core.remote.RemoteProtocol
 import java.time.Instant
 
 data class ConversationSelection(val threadId:String,val label:String,val project:String,val mode:String)
-data class VoiceProposal(val id:String,val text:String,val threadId:String,val project:String,val expiresAt:Long)
+data class VoiceProposal(val id:String,val text:String,val threadId:String,val project:String,val expiresAt:Long,val countdownMs:Long?=null,val receivedAt:Long=0)
 data class VoiceSubmission(val id:String,val threadId:String,val turnId:String?,val state:String,val submittedAt:Long,val acceptedAt:Long?,val firstOutputAt:Long?,val finishedAt:Long?)
 data class ConversationEntry(val id:String,val sequence:Long,val kind:String,val text:String,val spoken:String,val timestamp:Long,val receivedAt:Long)
 data class ConversationState(val callId:String="",val enabled:Boolean=false,val phase:String="ready",val error:String="",val selection:ConversationSelection?=null,
-    val proposal:VoiceProposal?=null,val submission:VoiceSubmission?=null,val entries:List<ConversationEntry> = emptyList(),val lastSpokenSequence:Long=0)
+    val proposal:VoiceProposal?=null,val submission:VoiceSubmission?=null,val entries:List<ConversationEntry> = emptyList(),val lastSpokenSequence:Long=0,val autoSend:Boolean=false)
 object ConversationWire {
     private fun keys(p:JsonObject,fields:Set<String>){require(p.keySet()==fields)}
     private fun string(p:JsonObject,key:String,max:Int)=RemoteProtocol.string(p,key,max)
@@ -25,18 +25,20 @@ object ConversationWire {
         require(type=="conversation.status.response");parse(p)
     }
     fun parse(p:JsonObject,receivedAt:Long=System.currentTimeMillis()):ConversationState {
-        keys(p,setOf("callId","phase","error","selection","proposal","submission","entries"));val callId=uuid(p,"callId")
-        val phase=string(p,"phase",32);require(phase in submissionStates+setOf("ready","awaiting_confirmation","cancelled","expired","busy","error"))
+        keys(p,setOf("callId","phase","error","selection","proposal","submission","entries")+if(p.has("autoSend"))setOf("autoSend")else emptySet());val callId=uuid(p,"callId")
+        val automatic=if(p.has("autoSend")){require(p["autoSend"].asJsonPrimitive.isBoolean);p["autoSend"].asBoolean}else false
+        val phase=string(p,"phase",32);require(phase in submissionStates+setOf("ready","awaiting_confirmation","countdown","dictating","cancelled","expired","busy","error"))
         val error=p["error"].asJsonPrimitive;require(error.isString && error.asString.matches(Regex("[a-z_]{0,64}")))
         val selection=if(p["selection"].isJsonNull)null else p["selection"].asJsonObject.let{s->keys(s,setOf("threadId","label","project","mode"));val mode=string(s,"mode",4);require(mode in setOf("mock","real"));ConversationSelection(id(s,"threadId"),string(s,"label",80),string(s,"project",80),mode)}
-        val proposal=if(p["proposal"].isJsonNull)null else p["proposal"].asJsonObject.let{s->keys(s,setOf("id","text","expiresAt","threadId","project"));VoiceProposal(uuid(s,"id"),string(s,"text",2000),id(s,"threadId"),string(s,"project",80),date(s,"expiresAt"))}
+        val proposal=if(p["proposal"].isJsonNull)null else p["proposal"].asJsonObject.let{s->keys(s,setOf("id","text","expiresAt","threadId","project")+if(s.has("countdownMs"))setOf("countdownMs")else emptySet());val ms=if(s.has("countdownMs")&&!s["countdownMs"].isJsonNull)number(s,"countdownMs").also{require(it<=3000)}else null;VoiceProposal(uuid(s,"id"),string(s,"text",2000),id(s,"threadId"),string(s,"project",80),date(s,"expiresAt"),ms,receivedAt)}
         val submission=if(p["submission"].isJsonNull)null else p["submission"].asJsonObject.let{s->keys(s,setOf("id","threadId","turnId","state","submittedAt","acceptedAt","firstOutputAt","finishedAt"));val state=string(s,"state",32);require(state in submissionStates);VoiceSubmission(uuid(s,"id"),id(s,"threadId"),if(s["turnId"].isJsonNull)null else id(s,"turnId"),state,date(s,"submittedAt"),nullableDate(s,"acceptedAt"),nullableDate(s,"firstOutputAt"),nullableDate(s,"finishedAt"))}
         val rows=p["entries"].asJsonArray;require(rows.size()<=4);var last=0L
         val entries=rows.map{v->v.asJsonObject.let{e->keys(e,setOf("id","sequence","kind","text","spoken","timestamp"));val sequence=number(e,"sequence");require(sequence>last);last=sequence;val kind=string(e,"kind",8);require(kind in setOf("system","codex"));ConversationEntry(uuid(e,"id"),sequence,kind,prose(e,"text"),string(e,"spoken",1000),date(e,"timestamp"),receivedAt)}}
-        return ConversationState(callId,true,phase,error.asString,selection,proposal,submission,entries)
+        return ConversationState(callId,true,phase,error.asString,selection,proposal,submission,entries,autoSend=automatic)
     }
 }
 fun conversationLabel(state:ConversationState)=when(state.phase){
+    "countdown"->"Sending shortly";"dictating"->"Listening to more words"
     "awaiting_confirmation"->"Review instruction";"submitting"->"Sending instruction…";"running","accepted"->"Codex working";"awaitingApproval"->"Approval needed on PC"
     "completed"->"Turn completed";"failed"->"Turn failed";"interrupted"->"Turn interrupted";"unknown"->"Submission uncertain";"expired"->"Confirmation expired";"busy"->"Conversation busy";"rejected"->"Instruction not sent";else->"Ready for your next request"
 }

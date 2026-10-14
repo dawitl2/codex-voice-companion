@@ -61,7 +61,7 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
     var chatOpen by remember{mutableStateOf(false)}
     var outgoingThread by remember{mutableStateOf<String?>(null)}
     LaunchedEffect(liveCall.phase){if(liveCall.phase==LivePhase.OFFERED){chatOpen=false;viewModel.hideChat()}}
-    val openChat={val id=liveCall.offer?.threadId?:dashboard.remote?.snapshot?.selectedThreadId;if(id!=null)viewModel.openChat(id);chatOpen=true}
+    val openChat={val id=conversationState.selection?.threadId?:liveCall.offer?.threadId?:dashboard.remote?.snapshot?.selectedThreadId;if(id!=null)viewModel.openChat(id);chatOpen=true}
     var controlsOpen by remember{mutableStateOf(false)}
     val openControls={val id=conversationState.selection?.threadId?:dashboard.remote?.snapshot?.selectedThreadId?:dashboard.remote?.snapshot?.threads?.firstOrNull()?.id;if(id!=null){viewModel.openControls(id);controlsOpen=true}}
     val context = LocalContext.current
@@ -129,7 +129,7 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
                 { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:${context.packageName}"))) },
                 ringEnabled = prefs.notificationsEnabled && prefs.notificationSound, speech = speechState,
                 onRepeat = viewModel::repeatSummary, onStopSpeech = viewModel::stopSpeaking, onFinishSpeech = viewModel::finishSpeaking,
-                conversation=conversationState,onConfirm=viewModel::confirmVoice,onCancel=viewModel::cancelVoice,onCorrect=viewModel::correctVoice,onSelect=viewModel::selectVoiceThread,onControls=openControls,onChat=openChat)
+                conversation=conversationState,onConfirm=viewModel::confirmVoice,onCancel=viewModel::cancelVoice,onCorrect=viewModel::correctVoice,onSelect=viewModel::selectVoiceThread,onControls=openControls,onChat=openChat,onEdit=viewModel::editVoice,onEditDictation=viewModel::editDictation)
         } else if (notification.alert != null) {
             BackHandler { viewModel.dismissNotification() }
             TaskAlertScreen(notification, dashboard.remote, viewModel::viewNotificationResults, viewModel::dismissNotification, viewModel::connectPc)

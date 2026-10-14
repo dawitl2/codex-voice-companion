@@ -5,11 +5,12 @@ import com.codexvoice.app.core.remote.RemoteProtocol
 
 data class RecognizedUtterance(val id: String, val sequence: Long, val text: String, val processingMs: Long, val endedAtMs:Long=0,val receivedAtMs:Long=0)
 data class OfflineVoice(val name: String, val label: String)
+data class ProvisionalWords(val id:String,val text:String,val revision:Long)
 data class SpeechUiState(val callId: String = "", val phase: String = "paused", val engine: String = "loading",
     val error: String = "", val transcript: List<RecognizedUtterance> = emptyList(), val summary: String = "",
     val voices: List<OfflineVoice> = emptyList(), val voice: String = "", val ttsEngine: String = "", val ttsStatus: String = "not_initialized",
     val speaking: Boolean = false, val playback: String = "none", val initializationMs: Long = 0, val speechStartMs: Long = 0,
-    val outputText: String = "",val speechStartedAtMs:Long=0)
+    val outputText: String = "",val speechStartedAtMs:Long=0,val provisional:ProvisionalWords?=null)
 object SpeechWire {
     private fun keys(p:JsonObject, fields:Set<String>) { require(p.keySet()==fields) }
     private fun string(p:JsonObject,key:String,max:Int)=RemoteProtocol.string(p,key,max)
@@ -24,7 +25,8 @@ object SpeechWire {
             keys(p,setOf("callId","text","mode","taskState")); string(p,"text",1000)
             require(string(p,"mode",8) in setOf("mock","real")); require(string(p,"taskState",32) in setOf("starting","running","awaitingApproval","completed","failed","interrupted","unknown","unavailable")); return
         }
-        require(type == "speech.status.response"); keys(p,setOf("callId","state","engine","language","error","utterances"))
+        require(type == "speech.status.response"); keys(p,setOf("callId","state","engine","language","error","utterances")+if(p.has("provisional"))setOf("provisional")else emptySet())
+        provisional(p)
         require(string(p,"state",32) in phases && string(p,"engine",32) in setOf("loading","ready","unavailable") && string(p,"language",8) == "en")
         require(p["error"].isJsonPrimitive && p["error"].asJsonPrimitive.isString && p["error"].asString.matches(Regex("[a-z_]{0,64}")))
         val rows=p["utterances"].asJsonArray; require(rows.size()<=8); var last=0L
@@ -35,6 +37,12 @@ object SpeechWire {
         }
     }
     fun utterances(p: JsonObject) = p["utterances"].asJsonArray.map { row -> val u=row.asJsonObject; RecognizedUtterance(string(u,"utteranceId",36),number(u,"sequence"),string(u,"text",2000),number(u,"processingMs"),date(u,"endedAt"),System.currentTimeMillis()) }
+    fun provisional(p:JsonObject):ProvisionalWords? {
+        if(!p.has("provisional")||p["provisional"].isJsonNull)return null
+        val u=p["provisional"].asJsonObject;keys(u,setOf("utteranceId","text","revision","processingMs","final"))
+        val id=string(u,"utteranceId",36);require(id.matches(Regex("[a-f0-9-]{36}")) && !boolean(u,"final") && number(u,"revision")>=0 && number(u,"processingMs") in 0..60000)
+        return ProvisionalWords(id,string(u,"text",2000),number(u,"revision"))
+    }
 }
 
 fun speechLabel(capturing:Boolean, muted:Boolean, speech:SpeechUiState):String = when {

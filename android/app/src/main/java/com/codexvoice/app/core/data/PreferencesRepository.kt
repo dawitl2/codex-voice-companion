@@ -34,6 +34,7 @@ class DataStorePreferencesRepository(private val store: DataStore<Preferences>) 
     private val rate = floatPreferencesKey("speech_rate")
     private val pitch = floatPreferencesKey("speech_pitch")
     private val automatic = booleanPreferencesKey("auto_speak_summary")
+    private val autoSend = booleanPreferencesKey("auto_send_instructions")
     override val preferences = store.data.catch { error ->
         if (error is IOException) emit(emptyPreferences()) else throw error
     }.map { p -> UserPreferences(
@@ -41,7 +42,7 @@ class DataStorePreferencesRepository(private val store: DataStore<Preferences>) 
         p[completion] ?: true, p[failure] ?: true, p[approval] ?: true, p[motion] ?: false,
         p[enabled] ?: false, p[interruption] ?: false, p[sound] ?: true, p[vibration] ?: true,
         p[calls] ?: false,
-        p[spoken] ?: true, p[voice] ?: "", (p[rate] ?: 1f).coerceIn(.5f,1.5f), (p[pitch] ?: 1f).coerceIn(.5f,1.5f), p[automatic] ?: true,
+        p[spoken] ?: true, p[voice] ?: "", (p[rate] ?: 1f).coerceIn(.5f,1.5f), (p[pitch] ?: 1f).coerceIn(.5f,1.5f), p[automatic] ?: true, p[autoSend] ?: true,
     ) }
     override suspend fun setTheme(mode: ThemeMode) { store.edit { it[theme] = mode.name } }
     override suspend fun setCalling(completion: Boolean, failure: Boolean, approval: Boolean) {
@@ -51,7 +52,7 @@ class DataStorePreferencesRepository(private val store: DataStore<Preferences>) 
     override suspend fun setCallInvitations(value: Boolean) { store.edit { it[calls] = value } }
     override suspend fun setSpeech(value: UserPreferences) { store.edit {
         require(value.speechVoice.length <= 128 && value.speechRate.isFinite() && value.speechPitch.isFinite())
-        it[spoken]=value.spokenSummaries; it[voice]=value.speechVoice; it[rate]=value.speechRate.coerceIn(.5f,1.5f); it[pitch]=value.speechPitch.coerceIn(.5f,1.5f); it[automatic]=value.autoSpeakSummary
+        it[spoken]=value.spokenSummaries; it[voice]=value.speechVoice; it[rate]=value.speechRate.coerceIn(.5f,1.5f); it[pitch]=value.speechPitch.coerceIn(.5f,1.5f); it[automatic]=value.autoSpeakSummary;it[autoSend]=value.autoSendInstructions
     } }
     override suspend fun setNotifications(value: UserPreferences) { store.edit {
         it[enabled] = value.notificationsEnabled; it[completion] = value.callOnCompletion; it[failure] = value.callOnFailure; it[approval] = value.callOnApproval

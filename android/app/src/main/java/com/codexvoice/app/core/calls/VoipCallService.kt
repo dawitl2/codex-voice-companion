@@ -42,6 +42,7 @@ class VoipCallService:Service(){
                     val offer=withTimeoutOrNull(20000){CallRuntime.state.first{it.offer?.eventId==id&&it.phase==LivePhase.OFFERED}}?.offer
                     if(offer==null){event?.let{TaskNotifications.post(this@VoipCallService,it,PushStore.get(this@VoipCallService).state.value.preferences)};stopSelf();return@launch}
                     TelecomRuntime.claimed=true;TelecomRuntime.callId=offer.callId
+                    ongoing(true)
                     TaskNotifications.cancel(this@VoipCallService,id)
                     val prefs=PushStore.get(this@VoipCallService).state.value.preferences
                     ringer=IncomingCallRinger(this@VoipCallService,offer.expiresAt).also{it.start(prefs.sound)}
@@ -58,6 +59,7 @@ class VoipCallService:Service(){
                 if(live.phase in setOf(LivePhase.ENDED,LivePhase.FAILED,LivePhase.EXPIRED,LivePhase.DECLINED,LivePhase.IDLE)){TelecomRuntime.control?.disconnect(DisconnectCause(DisconnectCause.LOCAL));stopSelf()}
             }
         }}
+        scope.launch{com.codexvoice.app.core.conversation.ConversationRuntime.state.collect{if(TelecomRuntime.callId.isNotBlank())ongoing(CallRuntime.state.value.phase==LivePhase.OFFERED)}}
         scope.launch{delay(1800000);runtime?.calls?.end();stopSelf()}
         return START_NOT_STICKY
     }
@@ -84,9 +86,12 @@ class VoipCallService:Service(){
         notifications.createNotificationChannel(NotificationChannel("codex_voip_calls","Codex Voice calls",NotificationManager.IMPORTANCE_HIGH).apply{setSound(null,null);enableVibration(PushStore.get(this@VoipCallService).state.value.preferences.vibration);lockscreenVisibility=Notification.VISIBILITY_PUBLIC})
         val end=PendingIntent.getService(this,710,Intent(this,VoipCallService::class.java).setAction(END),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val open=event?.let{TelecomRuntime.incomingIntent(this,it.eventId,false)}?:PendingIntent.getActivity(this,711,Intent(this,MainActivity::class.java),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val builder=NotificationCompat.Builder(this,"codex_voip_calls").setSmallIcon(R.drawable.ic_launcher).setContentTitle("Codex Voice").setContentText(if(incoming)"Incoming private call" else "Private call in progress")
+        val selection=com.codexvoice.app.core.conversation.ConversationRuntime.state.value.selection
+        val thread=runtime?.client?.state?.value?.snapshot?.threads?.find{it.id==(selection?.threadId?:CallRuntime.state.value.offer?.threadId)}
+        val identity=selection?.let{"${it.project} · ${it.label}"}?:thread?.let{"${it.project} · ${it.label}"}?:"Codex Voice"
+        val builder=NotificationCompat.Builder(this,"codex_voip_calls").setSmallIcon(R.drawable.ic_launcher).setContentTitle(identity).setContentText(if(incoming)"Incoming private call" else "Private call in progress")
             .setContentIntent(open).setCategory(NotificationCompat.CATEGORY_CALL).setOngoing(true).setOnlyAlertOnce(true).setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-        val person=Person.Builder().setName("Codex Voice").setImportant(true).build()
+        val person=Person.Builder().setName(identity).setImportant(true).build()
         if(incoming&&event!=null){val answer=TelecomRuntime.incomingIntent(this,event!!.eventId,true);builder.setStyle(NotificationCompat.CallStyle.forIncomingCall(person,end,answer))
             if(Build.VERSION.SDK_INT<34||notifications.canUseFullScreenIntent())builder.setFullScreenIntent(open,true)
             builder.setTimeoutAfter((event!!.expires-System.currentTimeMillis()).coerceIn(1,120000))

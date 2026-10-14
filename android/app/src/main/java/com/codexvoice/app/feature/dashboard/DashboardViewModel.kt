@@ -68,6 +68,8 @@ class DashboardViewModel(
     fun confirmVoice(id:String){speech?.confirmProposal(id)}
     fun cancelVoice(id:String){speech?.cancelProposal(id)}
     fun correctVoice(id:String,text:String){speech?.correctProposal(id,text)}
+    fun editVoice(id:String){speech?.editProposal(id)}
+    fun editDictation(){speech?.editDictation()}
     fun selectVoiceThread(id:String){speech?.selectThread(id)}
     fun repeatSummary() { speech?.repeat() }
     fun stopSpeaking() { speech?.stop() }
