@@ -74,8 +74,10 @@ export class StoredConversationResolver {
       const id=pinned?this.bridge.threads.activeId:newest.id;
       const row=this.rows.find(r=>r.id===id);if(!row)return;
       if(this.bridge.threads.loaded.has(row.id)){this.diagnostic='Using this exact original conversation';return;}
+      const version=this.bridge.threads.selectionVersion;
       const wire=object(object(await this.bridge.client.request('thread/read',{threadId:row.id,includeTurns:true})).thread);
       if(this.closed||wire.id!==row.id||!samePath(requiredString(wire.cwd),row.cwd)||!Array.isArray(wire.turns))return;
+      if(this.bridge.threads.loaded.has(row.id)||this.bridge.threads.selectionVersion!==version||(this.locked()&&this.bridge.threads.activeId!==row.id))return;
       let local=this.bridge.store.state.threads.find(t=>t.id===row.id);
       if(!local){local={id:row.id,cwd:row.cwd,label:row.label,model:row.model,status:'unavailable',mode:'real',createdAt:new Date(Number(wire.createdAt)*1000).toISOString(),updatedAt:row.updatedAt,original:true,observed:true,source:row.source,rolloutPath:row.path,sandbox:'read-only'};this.bridge.store.state.threads.push(local);}
       else {local.label=row.label;local.updatedAt=row.updatedAt;local.observed=true;local.status='unavailable';}
