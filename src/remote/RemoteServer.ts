@@ -16,6 +16,7 @@ import type { SpeechSessionCoordinator } from '../speech/SpeechSessionCoordinato
 import { ConversationError, type VoiceConversationController } from '../conversation/VoiceConversationController.js';
 import {ControlError,type TaskControl} from '../control/TaskControl.js';
 import {ChatError,type TextConversation} from '../conversation/TextConversation.js';
+import type {StoredConversationResolver} from '../core/StoredConversationResolver.js';
 
 export interface NotificationAccess { registry: DeviceRegistry; dispatcher: NotificationDispatcher; projectId: string | undefined }
 export interface CallAccess { manager: CallSessionManager; media: MediaTransportServer; speech?: SpeechSessionCoordinator; conversation?: VoiceConversationController }
@@ -42,7 +43,7 @@ export class RemoteServer {
   private readonly pendingTypes = new Set<string>();
   readonly endpoint: URL;
   constructor(private readonly bridge: Bridge, private readonly access: RemoteAccess,
-    endpoint: string, private readonly port = 8787, private readonly handshakeMs = 15000, private readonly heartbeatMs = 20000, private readonly notifications?: NotificationAccess, private readonly calls?: CallAccess, readonly controls?:TaskControl, private readonly chat?:TextConversation) {
+    endpoint: string, private readonly port = 8787, private readonly handshakeMs = 15000, private readonly heartbeatMs = 20000, private readonly notifications?: NotificationAccess, private readonly calls?: CallAccess, readonly controls?:TaskControl, private readonly chat?:TextConversation,private readonly recent?:StoredConversationResolver) {
     this.endpoint = privateEndpoint(endpoint);
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid remote port');
     this.server.headersTimeout = 10000; this.server.requestTimeout = 15000;
@@ -160,6 +161,9 @@ export class RemoteServer {
           return;
         }
         if (!session.deviceId) throw new ProtocolError('authentication_required');
+        if(m.type==='thread.latest.request'){
+          void(async()=>{try{await this.recent?.latest(this.bridge.threads.activeId);this.publish();this.send(session,'state.snapshot',this.snapshot(),m.id);}catch{this.send(session,'state.snapshot',this.snapshot(),m.id);}})();return;
+        }
         if(m.type.startsWith('control.')){
           const deviceId=session.deviceId,p=m.payload as Record<string,unknown>,threadId=String(p.threadId);
           void(async()=>{try{
@@ -191,7 +195,7 @@ export class RemoteServer {
             try {
               const voice=this.calls?.conversation; if(!voice) throw new ConversationError('conversation_disabled');
               const p=m.payload as Record<string,unknown>,callId=String(p.callId);
-              const response=m.type==='conversation.confirm'?await voice.confirm(deviceId,callId,String(p.confirmationId)):
+              const response=m.type==='conversation.preferences'?voice.preferences(deviceId,callId,p.automatic as boolean):m.type==='conversation.edit'?voice.editing(deviceId,callId,String(p.confirmationId)):m.type==='conversation.confirm'?await voice.confirm(deviceId,callId,String(p.confirmationId)):
                 m.type==='conversation.select'?await voice.select(deviceId,callId,String(p.threadId)):
                 m.type==='conversation.cancel'?voice.cancel(deviceId,callId,String(p.confirmationId)):
                 m.type==='conversation.correct'?voice.correct(deviceId,callId,String(p.confirmationId),String(p.text)):

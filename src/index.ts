@@ -59,7 +59,8 @@ async function main(): Promise<void> {
           if(args.includes('--controls'))controls=new TaskControl(bridge,ledger,new WindowsRegistryStorage(resolve(root,'.runtime','remote',mode),'controls.dpapi'),id=>devices!.hasDevice(id));
           conversation = new VoiceConversationController(bridge, calls, ledger,Date.now,controls);
           chat = new TextConversation(bridge, ledger);
-          speech.onTranscription((call, utterance) => { void conversation!.transcription(call, utterance); });
+      speech.onTranscription((call, utterance) => { void conversation!.transcription(call, utterance); });
+      speech.onActivity((call,busy)=>conversation!.activity(call,busy));
         }
         media = new MediaTransportServer(calls, endpoint, speech ? (call, pcm, level) => speech!.frame(call, pcm, level) : undefined);
       }

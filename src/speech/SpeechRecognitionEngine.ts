@@ -8,7 +8,7 @@ import { performance } from 'node:perf_hooks';
 export interface Recognition { text: string; language: 'en'; processingMs: number; loadMs: number | null }
 export interface SpeechRecognitionEngine {
   prepare(): Promise<void>;
-  recognize(pcm: Buffer, signal: AbortSignal): Promise<Recognition>;
+  recognize(pcm: Buffer, signal: AbortSignal,provisional?:boolean): Promise<Recognition>;
   close(): void;
 }
 export class SpeechError extends Error { constructor(readonly code: string) { super(code); } }
@@ -37,13 +37,13 @@ export class WhisperCppEngine implements SpeechRecognitionEngine {
     if (hash.digest('hex') !== TINY_SHA256) throw new SpeechError('asr_model_invalid');
     this.available = true;
   }
-  async recognize(pcm: Buffer, signal: AbortSignal): Promise<Recognition> {
+  async recognize(pcm: Buffer, signal: AbortSignal,provisional=false): Promise<Recognition> {
     if (!this.available || this.closed) throw new SpeechError('asr_unavailable');
     if (this.child) throw new SpeechError('asr_busy');
     if (signal.aborted) throw new SpeechError('recognition_cancelled');
     const wav = pcmWav(pcm); const started = performance.now();
     return new Promise((resolveResult, reject) => {
-      const child = spawn(this.executable, ['-m', this.model, '-f', '-', '-l', 'en', '-t', '4', '-of', 'memory-only-callback', '-nt', '-np', '-ng', '-bo', '1', '-bs', '1'],
+      const child = spawn(this.executable, ['-m', this.model, '-f', '-', '-l', 'en', '-t', provisional?'2':'4', '-of', 'memory-only-callback', '-nt', '-np', '-ng', '-bo', '1', '-bs', '1'],
         { shell: false, windowsHide: true, stdio: ['pipe','pipe','pipe'], env: { SystemRoot: process.env.SystemRoot, TEMP: process.env.TEMP, PATH: process.env.PATH } });
       child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
       this.child = child; let output = ''; let diagnostic = ''; let failure: string | null = null;

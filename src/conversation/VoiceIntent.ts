@@ -1,6 +1,6 @@
 export type LocalIntent = 'status' | 'result' | 'project' | 'repeat' | 'stop' | 'cancel' | 'confirm' | 'reject' | 'help' | 'hangup' | 'interrupt' | 'approvals' | 'deny' | 'queue' | 'queued' | 'cancelqueue' | 'ambiguous' | 'approve';
 const grammar: Record<LocalIntent, string[]> = {
-  status: ['status', 'what is the current task', "what's the current task", 'is codex still working', 'what happened with the last task', 'what is codex doing'],
+  status: ['status', 'what is the current task', "what's the current task", 'is codex still working', 'what happened with the last task', 'what happened last time', 'what is codex doing'],
   result: ['what was the last result', 'what did codex say', 'read the result', 'read the last result'],
   project: ['which project am i connected to', 'which project', 'what project is selected'],
   repeat: ['repeat', 'repeat that', 'repeat the summary', 'repeat the response'],

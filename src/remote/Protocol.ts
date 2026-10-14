@@ -10,7 +10,7 @@ import {validateChatRequest,validateChatResponse} from '../conversation/ChatProt
 export const VERSION = 2;
 export const CLIENT_LIMIT = 8192;
 export const SERVER_LIMIT = 262144;
-export const REQUESTS = ['state.snapshot.request', 'thread.list.request', 'task.history.request', 'connection.status.request', 'heartbeat', 'disconnect'] as const;
+export const REQUESTS = ['state.snapshot.request', 'thread.list.request', 'thread.latest.request', 'task.history.request', 'connection.status.request', 'heartbeat', 'disconnect'] as const;
 export type ReadRequest = typeof REQUESTS[number];
 export type ClientMessage = Envelope<'client.hello', { name: string }> |
   Envelope<'pair.request', { code: string }> | Envelope<'auth.request', { deviceId: string; token: string }> |

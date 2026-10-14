@@ -15,6 +15,7 @@ import { VoiceConversationController } from '../conversation/VoiceConversationCo
 import { SubmissionLedger } from '../conversation/SubmissionLedger.js';
 import { TaskControl } from '../control/TaskControl.js';
 import { TextConversation } from '../conversation/TextConversation.js';
+import {StoredConversationResolver} from '../core/StoredConversationResolver.js';
 
 export interface ServiceOptions { assets: string; data: string; project: string; codex: string; endpoint: string; writable: boolean; notifications: boolean }
 /** Real bridge modules, one ownership tree. No terminal or renderer access to subprocess RPC. */
@@ -30,6 +31,7 @@ export class CompanionService {
   readonly controls: TaskControl;
   readonly chat: TextConversation;
   readonly remote: RemoteServer;
+  readonly recent:StoredConversationResolver;
   private readonly coordinator: CallEventCoordinator;
   private stopped: Promise<void> | undefined;
   constructor(readonly options: ServiceOptions) {
@@ -50,10 +52,12 @@ export class CompanionService {
     this.controls = new TaskControl(this.bridge, ledger, new WindowsRegistryStorage(directory, 'controls.dpapi'), id => this.registry.hasDevice(id));
     this.voice = new VoiceConversationController(this.bridge, this.calls, ledger, Date.now, this.controls);
     this.chat = new TextConversation(this.bridge, ledger);
+    this.recent=new StoredConversationResolver(this.bridge,options.assets,()=>this.transport.pid,()=>this.calls.diagnostics().some(c=>!['ended','declined','expired','failed'].includes(c.state)));
     this.speech.onTranscription((c, u) => { void this.voice.transcription(c, u); });
+    this.speech.onActivity((c,busy)=>this.voice.activity(c,busy));
     this.remote = new RemoteServer(this.bridge, this.registry, options.endpoint, 8787, 15000, 20000,
       { registry: this.registry, dispatcher: this.notifications, projectId: process.env.CODEX_VOICE_FIREBASE_PROJECT_ID },
-      { manager: this.calls, media: this.media, speech: this.speech, conversation: this.voice }, this.controls, this.chat);
+      { manager: this.calls, media: this.media, speech: this.speech, conversation: this.voice }, this.controls, this.chat,this.recent);
   }
   async start() {
     try { await this.bridge.connect(); await this.speech.initialization; await this.remote.start(); }
@@ -62,7 +66,7 @@ export class CompanionService {
   stop(): Promise<void> {
     this.stopped ??= (async () => {
       // Close external entry points and audio before interrupting owned Codex work.
-      this.controls.close(); this.voice.close(); this.coordinator.close(); this.speech.close();
+      this.recent.close();this.controls.close(); this.voice.close(); this.coordinator.close(); this.speech.close();
       await this.remote.close(); await this.media.close(); this.calls.close();
       await this.notifications.close(); await this.bridge.close();
     })();
@@ -71,11 +75,12 @@ export class CompanionService {
   state(): Record<string, unknown> {
     const b = this.bridge, selected = b.threads.activeId;
     return { running: !this.stopped, codexConnected: b.available, authentication: b.authentication,
-      policy: this.options.writable ? 'workspace-write (selected project only; network disabled)' : 'read-only', project: this.options.project,
+      policy: selected?this.bridge.threads.policy(selected)+' (selected conversation; network disabled)':this.options.writable?'workspace-write (selected project only; network disabled)':'read-only', project: selected?b.threads.get(selected).cwd:this.options.project,
+      storedConversations:this.recent.list(),selectionDiagnostic:this.recent.diagnostic,
       firebase: this.notifications.configured, firebaseDiagnostic: this.notifications.diagnostic, speech: this.speech.diagnostics(),
       paired: this.registry.list().map(d => ({ ...d, ...this.registry.pushState(d.id), ...this.remote.deviceState(d.id) })), connectedPhones: this.remote.connectedDevices,
       operations: selected ? this.registry.list().flatMap(d=>{try{return this.controls.status(d.id,selected).operations.map(o=>({...o,device:d.name}));}catch{return [];}}) : [],
-      threads: b.threads.list(), selectedThreadId: selected ?? null, turns: b.store.state.turns.slice(-30),
+      threads: b.threads.list().map(({rolloutPath:_path,...t})=>t), selectedThreadId: selected ?? null, turns: b.store.state.turns.slice(-30),
       events: b.history().slice(-30), approvals: b.approvals.list().map(a => b.approvals.review(a.id)),
       reviewers: this.controls.reviewerList(), calls: this.calls.diagnostics(), media: this.media.diagnostics(), mediaSessions: this.media.connected,
       codexPid: this.transport.pid ?? null };

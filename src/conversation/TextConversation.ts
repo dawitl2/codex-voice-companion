@@ -14,7 +14,7 @@ export class TextConversation {
   status(device:string,threadId:string){
     this.owner(device);const thread=this.bridge.threads.get(threadId),rows=this.bridge.store.state.turns.filter(t=>t.threadId===threadId).slice(-12);
     for(const row of this.ledger.list().filter(r=>r.threadId===threadId&&r.turnId)){const t=rows.find(t=>t.id===row.turnId);if(t&&terminal(t.status)&&row.state!==t.status)this.ledger.update(row.id,{state:t.status as 'completed'|'failed'|'interrupted',finishedAt:t.finishedAt??null});}
-    return {threadId,label:thread.label,project:basename(thread.cwd),mode:thread.mode,policy:this.bridge.threads.sandbox,selected:this.bridge.threads.activeId===threadId,
+    return {threadId,label:thread.label,project:basename(thread.cwd),mode:thread.mode,policy:this.bridge.threads.policy(threadId),selected:this.bridge.threads.activeId===threadId,
       turns:rows.map(t=>({id:t.id,status:t.status,instruction:sanitize(t.instruction??'',2000),response:sanitize(t.finalResponse,16000),startedAt:t.startedAt,finishedAt:t.finishedAt??null})),
       progress:sanitize(this.bridge.store.state.events.filter(e=>e.threadId===threadId).at(-1)?.summary??'Ready',240)};
   }

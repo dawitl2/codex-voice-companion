@@ -99,3 +99,21 @@ test('missing model output is a system status, never a fabricated Codex reply',a
   const f=await fixture(t);f.bridge.store.state.turns.push({id:'empty',threadId:f.threadId,status:'completed',startedAt:new Date().toISOString(),finishedAt:new Date().toISOString(),finalResponse:'',commandResults:[],completionEmitted:true});
   await f.say('What did Codex say?');assert.equal(f.status().entries.at(-1)?.kind,'system');assert.match(f.status().entries.at(-1)!.text,/No final response/);
 });
+
+test('automatic submission waits three seconds, pauses for new speech, and sends combined final words once',async t=>{
+ const f=await fixture(t);f.voice.preferences(f.device,f.call.callId,true);await f.say('Explain the current project');assert.equal(f.status().phase,'countdown');assert.equal(f.status().proposal?.countdownMs,3000);
+ f.advance(2500);f.voice.activity(f.call,true);f.advance(4000);await new Promise(r=>setTimeout(r,120));assert.equal(f.ledger.list().length,0);assert.equal(f.status().proposal?.countdownMs,null);
+ await f.say('using one sentence');f.voice.activity(f.call,false);assert.equal(f.status().proposal?.text,'Explain the current project using one sentence');f.advance(2999);await new Promise(r=>setTimeout(r,120));assert.equal(f.ledger.list().length,0);
+ f.advance(1);await new Promise(r=>setTimeout(r,180));assert.equal(f.ledger.list().length,1);assert.equal(f.bridge.store.state.turns.length,1);
+});
+test('auto-send Cancel, Edit, manual mode and sensitive requests prevent the automatic deadline',async t=>{
+ const f=await fixture(t);f.voice.preferences(f.device,f.call.callId,true);await f.say('Explain this project');f.voice.cancel(f.device,f.call.callId,f.status().proposal!.id);f.advance(3100);await new Promise(r=>setTimeout(r,120));assert.equal(f.ledger.list().length,0);
+ await f.say('Explain this project');f.voice.editing(f.device,f.call.callId,f.status().proposal!.id);f.advance(3100);await new Promise(r=>setTimeout(r,120));assert.equal(f.status().phase,'awaiting_confirmation');assert.equal(f.ledger.list().length,0);
+ f.voice.preferences(f.device,f.call.callId,false);assert.equal(f.status().proposal,null);await f.say('Explain this project');assert.equal(f.status().proposal?.countdownMs,null);
+ f.voice.preferences(f.device,f.call.callId,true);await f.say('Remove the obsolete file');assert.equal(f.status().phase,'awaiting_confirmation');f.advance(3100);await new Promise(r=>setTimeout(r,120));assert.equal(f.ledger.list().length,0);
+});
+test('Cancel after countdown expiry but before actual RPC prevents dispatch',async t=>{
+ const f=await fixture(t);let entered!:()=>void,release!:()=>void;const ready=new Promise<void>(r=>entered=r),gate=new Promise<void>(r=>release=r);let dispatched=false;
+ f.bridge.send=async(_id,_text,guard)=>{entered();await gate;guard?.();dispatched=true;throw Error('unreachable');};f.voice.preferences(f.device,f.call.callId,true);await f.say('Explain this project');const id=f.status().proposal!.id;
+ const pending=f.voice.confirm(f.device,f.call.callId,id);await ready;f.voice.cancel(f.device,f.call.callId,id);release();await pending;assert.equal(dispatched,false);assert.equal(f.ledger.get(id)?.state,'rejected');assert.equal(f.status().phase,'cancelled');
+});

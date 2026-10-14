@@ -46,7 +46,7 @@ async function action(type: string, p: Record<string, unknown>): Promise<unknown
     service = new CompanionService({ assets: String(config.assets), data: String(config.data), project,
       codex: String(config.codex), endpoint: 'wss://' + dns + '/remote', writable: config.writable === true, notifications: config.notifications === true });
     await service.start();
-    if (typeof config.selectedThreadId === 'string') { try { await service.bridge.select(config.selectedThreadId); } catch { /* User can choose/reconcile a different original thread. */ } }
+    await service.recent.latest(typeof config.selectedThreadId==='string'?config.selectedThreadId:undefined).catch(()=>{});
     return { ...service.state(), tailscale: true };
   }
   if (type === 'stop') { await stop(); return { stopped: true }; }
@@ -54,6 +54,9 @@ async function action(type: string, p: Record<string, unknown>): Promise<unknown
   const text = (key: string, max: number) => { const v = p[key]; if (typeof v !== 'string' || !v.trim() || v.length > max) throw new Error('Invalid ' + key); return v; };
   switch (type) {
     case 'state': return { ...s.state(), tailscale: true };
+    case 'discover': return await s.recent.discover();
+    case 'resumeStored': await s.recent.select(identifier(p.threadId));return s.state();
+    case 'latest': await s.recent.latest();return s.state();
     case 'create': return { threadId: await s.bridge.create(s.options.project, text('label', 80)) };
     case 'select': await s.bridge.select(identifier(p.threadId)); return s.state();
     case 'send': { const id = identifier(p.threadId); if (s.bridge.threads.activeId !== id) throw new Error('Select this conversation before sending'); return { turnId: await s.bridge.send(id, text('text', 2000)) }; }

@@ -17,6 +17,8 @@ export class ThreadManager {
     if (!thread) throw new Error('Thread is not companion-managed in this mode'); return thread;
   }
   selected(): ManagedThread { if (!this.activeId) throw new Error('Select a managed thread first'); return this.get(this.activeId); }
+  policy(id:string):Sandbox{return this.get(id).sandbox??this.sandbox;}
+  remember(id:string){const t=this.get(id);t.lastSelectedAt=new Date().toISOString();this.store.save();}
   async create(cwdInput: string, label: string, model?: string): Promise<ManagedThread> {
     const cwd = projectDirectory(cwdInput);
     this.checkWriteProject(cwd);
@@ -29,25 +31,26 @@ export class ThreadManager {
   }
   async resume(id: string): Promise<Record<string, unknown>> {
     const thread = this.get(id); const cwd = projectDirectory(thread.cwd);
-    this.checkWriteProject(cwd);
+    if(!thread.original)this.checkWriteProject(cwd);
     if (!samePath(cwd, thread.cwd)) throw new Error('Project path changed; refusing resumption');
-    const result = object(await this.client.request('thread/resume', { threadId: id, cwd, model: thread.model, modelProvider: 'openai', serviceTier: 'default', approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: this.sandbox, config: this.config(cwd) }));
-    const wire = this.validate(result, cwd); if (identifier(wire.id) !== id) throw new Error('Resumption returned the wrong thread');
+    const policy=this.policy(id);
+    const result = object(await this.client.request('thread/resume', { threadId: id, cwd, model: thread.model, modelProvider: 'openai', serviceTier: 'default', approvalPolicy: 'on-request', approvalsReviewer: 'user', sandbox: policy, config: this.config(cwd,policy) }));
+    const wire = this.validate(result, cwd,policy); if (identifier(wire.id) !== id) throw new Error('Resumption returned the wrong thread');
     if (requiredString(result.model) !== thread.model) throw new Error('Resumption changed the selected model');
     thread.status = 'ready'; thread.model = requiredString(result.model); this.loaded.add(id); this.activeId = id; this.store.save(); return wire;
   }
-  private config(cwd: string): Record<string, unknown> {
+  private config(cwd: string,sandbox:Sandbox=this.sandbox): Record<string, unknown> {
     // Config values are application-owned overrides, never user credential content.
-    const values: Record<string, unknown> = { model_provider: 'openai', forced_login_method: 'chatgpt', service_tier: 'default', approvals_reviewer: 'user', approval_policy: 'on-request', sandbox_mode: this.sandbox, notify: [], mcp_servers: {}, plugins: {}, features: { apps: false, hooks: false, remote_plugin: false } };
+    const values: Record<string, unknown> = { model_provider: 'openai', forced_login_method: 'chatgpt', service_tier: 'default', approvals_reviewer: 'user', approval_policy: 'on-request', sandbox_mode: sandbox, notify: [], mcp_servers: {}, plugins: {}, features: { apps: false, hooks: false, remote_plugin: false } };
     if (this.mode === 'real') Object.assign(values, disabledIntegrations(cwd));
     return values;
   }
   private checkWriteProject(cwd: string) {
     if (this.sandbox === 'workspace-write' && this.writableProject && !samePath(cwd, projectDirectory(this.writableProject))) throw new Error('This project has not been authorized for workspace writes on the desktop');
   }
-  private validate(result: Record<string, unknown>, cwd: string): Record<string, unknown> {
+  private validate(result: Record<string, unknown>, cwd: string,sandbox:Sandbox=this.sandbox): Record<string, unknown> {
     const wire = object(result.thread); const policy = object(result.sandbox);
-    const expected = this.sandbox === 'read-only' ? 'readOnly' : 'workspaceWrite';
+    const expected = sandbox === 'read-only' ? 'readOnly' : 'workspaceWrite';
     if (result.modelProvider !== 'openai' || result.approvalPolicy !== 'on-request' || result.approvalsReviewer !== 'user' || policy.type !== expected || !samePath(requiredString(result.cwd), cwd) || !samePath(requiredString(wire.cwd), cwd)) throw new Error('Server did not honor required authentication, project, or safety settings');
     if (policy.type === 'workspaceWrite' && policy.networkAccess !== false) throw new Error('Workspace network access must be disabled');
     if (policy.type === 'workspaceWrite' && (!Array.isArray(policy.writableRoots) || policy.writableRoots.some(root => typeof root !== 'string' || !samePath(root, cwd)))) throw new Error('Additional writable roots are refused');

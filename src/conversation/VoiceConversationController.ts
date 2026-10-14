@@ -4,7 +4,7 @@ import type {Bridge} from '../core/Bridge.js';
 import {AppServerRejection} from '../core/AppServerClient.js';
 import {TERMINAL,type CallSession, type CallSessionManager} from '../calls/CallSessionManager.js';
 import type {FinalTranscription} from '../speech/SpeechSessionCoordinator.js';
-import {spokenSummary} from '../speech/SpokenSummaryFormatter.js';
+import {spokenSummary,spokenResponse} from '../speech/SpokenSummaryFormatter.js';
 import {sanitize,terminal} from '../utils/safe.js';
 import {projectDirectory,samePath} from '../config/settings.js';
 import {voiceIntent} from './VoiceIntent.js';
@@ -13,9 +13,9 @@ import {TaskControl} from '../control/TaskControl.js';
 
 export class ConversationError extends Error { constructor(readonly code:string){super(code);} }
 interface Proposal { id:string; text:string; expiresAt:string; threadId:string; project:string }
-interface BoundProposal extends Proposal { cwd:string; model:string; selected:string|null; selectionVersion:number; generation:number }
+interface BoundProposal extends Proposal { cwd:string; model:string; selected:string|null; selectionVersion:number; generation:number;autoAt?:number|null }
 interface Entry { id:string; sequence:number; kind:'system'|'codex'; text:string; spoken:string; timestamp:string }
-interface Session { callId:string; deviceId:string; threadId:string; generation:number; phase:string; proposal:BoundProposal|null; submissionId:string|null; entries:Entry[]; sequence:number; seen:Set<string>; terminalSpoken:Set<string>; error:string;controlId?:string|undefined;queueNext?:boolean }
+interface Session { callId:string; deviceId:string; threadId:string; generation:number; phase:string; proposal:BoundProposal|null; submissionId:string|null; entries:Entry[]; sequence:number; seen:Set<string>; terminalSpoken:Set<string>; error:string;controlId?:string|undefined;queueNext?:boolean;autoSend?:boolean;speechBusy?:boolean;continuation?:string|undefined;inFlight?:{id:string;dispatched:boolean}|undefined }
 
 /** Consumes only finalized, internally authenticated ASR. No direct RPC or shell forwarding. */
 export class VoiceConversationController {
@@ -23,13 +23,13 @@ export class VoiceConversationController {
   private readonly unsubscribe:()=>void; private readonly events:()=>void; private readonly timer:NodeJS.Timeout;
   private closed=false;
   constructor(private readonly bridge:Bridge,private readonly calls:CallSessionManager,readonly ledger:SubmissionLedger,private readonly now:()=>number=Date.now,private readonly controls?:TaskControl) {
-    this.unsubscribe=calls.onChange(call=>{ if(TERMINAL.has(call.state) || call.state!=='active') this.end(call.callId); });
+    this.unsubscribe=calls.onChange(call=>{ if(TERMINAL.has(call.state) || call.state!=='active') this.end(call.callId);else if(call.muted){const s=this.sessions.get(call.callId);if(s?.proposal?.autoAt!==undefined)this.invalidate(s,'microphone_paused');} });
     this.events=bridge.events.subscribe(event=>{
       if(event.type==='bridge.disconnected') for(const s of this.sessions.values()) this.invalidate(s,'codex_unavailable');
       // Turn events can be emitted before the originating store mutation finishes.
       setImmediate(()=>{ if(!this.closed) { this.reconcileLedger();for(const s of this.sessions.values()) this.safeRefresh(s); } });
     });
-    this.timer=setInterval(()=>{ this.reconcileLedger();for(const s of this.sessions.values()) { this.checkProposal(s); this.safeRefresh(s); } },500); this.timer.unref();
+    this.timer=setInterval(()=>{ this.reconcileLedger();for(const s of this.sessions.values()) { this.checkProposal(s); this.safeRefresh(s);const p=s.proposal;if(p?.autoAt!=null&&this.now()>=p.autoAt&&!s.speechBusy)void this.confirm(s.deviceId,s.callId,p.id).catch(()=>{}); } },100); this.timer.unref();
   }
   connection(deviceId:string,delta:1|-1) {
     const count=Math.max(0,(this.connected.get(deviceId)??0)+delta); if(count) this.connected.set(deviceId,count); else this.connected.delete(deviceId);
@@ -47,7 +47,7 @@ export class VoiceConversationController {
     if(s.entries.length>16) s.entries.shift();
   }
   private invalidate(s:Session,code:string) {
-    if(!s.proposal) return; s.proposal=null; s.phase=code==='confirmation_expired'?'expired':'cancelled'; s.error=code;
+    s.continuation=undefined;if(!s.proposal) return; s.proposal=null; s.phase=code==='confirmation_expired'?'expired':'cancelled'; s.error=code;
     this.add(s,code==='confirmation_expired'?'That confirmation expired. Please say the instruction again.':'The pending instruction was cancelled. Please review the selected conversation and try again.');
   }
   private checkProposal(s:Session) {
@@ -69,8 +69,11 @@ export class VoiceConversationController {
     const p=s.proposal;
     const row=s.submissionId?this.ledger.get(s.submissionId):null;
     const submission=row?{id:row.id,threadId:row.threadId,turnId:row.turnId,state:row.state,submittedAt:row.submittedAt,acceptedAt:row.acceptedAt,firstOutputAt:row.firstOutputAt,finishedAt:row.finishedAt}:null;
-    return {callId,phase:s.phase,error:s.error,selection,proposal:p?{id:p.id,text:p.text,expiresAt:p.expiresAt,threadId:p.threadId,project:p.project}:null,submission,entries:s.entries.filter(e=>e.sequence>afterSequence).slice(-4).map(e=>({...e}))};
+    return {callId,phase:s.phase,error:s.error,autoSend:s.autoSend===true,selection,proposal:p?{id:p.id,text:p.text,expiresAt:p.expiresAt,threadId:p.threadId,project:p.project,countdownMs:p.autoAt==null?null:Math.max(0,p.autoAt-this.now())}:null,submission,entries:s.entries.filter(e=>e.sequence>afterSequence).slice(-4).map(e=>({...e}))};
   }
+  preferences(deviceId:string,callId:string,automatic:boolean){const s=this.owner(deviceId,callId);if(s.autoSend!==automatic){s.generation++;this.invalidate(s,'voice_mode_changed');s.autoSend=automatic;}return this.status(deviceId,callId);}
+  editing(deviceId:string,callId:string,id:string){const s=this.owner(deviceId,callId);if(s.proposal?.id!==id)throw new ConversationError('confirmation_unavailable');delete s.proposal.autoAt;s.continuation=undefined;s.phase='awaiting_confirmation';return this.status(deviceId,callId);}
+  activity(call:CallSession,busy:boolean){try{const s=this.owner(call.deviceId,call.callId);s.speechBusy=busy;const p=s.proposal;if(p?.autoAt!==undefined){if(busy){p.autoAt=null;s.continuation=p.text;s.phase='dictating';}else if(p.autoAt===null){p.autoAt=this.now()+3000;s.phase='countdown';}}}catch{/* No activity can authorize a disconnected call. */}}
   async select(deviceId:string,callId:string,threadId:string) {
     const s=this.owner(deviceId,callId); if(s.phase==='submitting') throw new ConversationError('submission_in_progress');
     s.generation++; this.invalidate(s,'thread_changed'); const generation=s.generation;
@@ -82,15 +85,15 @@ export class VoiceConversationController {
     return this.status(deviceId,callId);
   }
   cancel(deviceId:string,callId:string,confirmationId:string) {
-    const s=this.owner(deviceId,callId); if(s.proposal?.id!==confirmationId) throw new ConversationError('confirmation_unavailable');
+    const s=this.owner(deviceId,callId);if(s.inFlight?.id===confirmationId){if(s.inFlight.dispatched)throw new ConversationError('instruction_already_sent');s.generation++;s.phase='cancelled';s.error='user_cancelled';return this.status(deviceId,callId);}if(s.proposal?.id!==confirmationId) throw new ConversationError('confirmation_unavailable');
     this.invalidate(s,'user_cancelled'); return this.status(deviceId,callId);
   }
   correct(deviceId:string,callId:string,confirmationId:string,text:string) {
     const s=this.owner(deviceId,callId); this.checkProposal(s);
     if(s.proposal?.id!==confirmationId) throw new ConversationError('confirmation_unavailable');
-    s.proposal=null; this.propose(s,text); return this.status(deviceId,callId);
+    s.proposal=null; this.propose(s,text,true); return this.status(deviceId,callId);
   }
-  private propose(s:Session,text:string) {
+  private propose(s:Session,text:string,manual=false) {
     if(!text.trim() || text.length>2000 || /[\u0000-\u001f\u007f\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(text)) throw new ConversationError('invalid_instruction');
     // Guard obvious secret/privileged requests; the existing Codex sandbox remains authoritative.
     if(sanitize(text,2000)!==text || /\b(?:force[- ]?push|git\s+remote|rm\s+-rf|delete\s+(?:the\s+)?project|disable\s+(?:the\s+)?(?:sandbox|approvals?)|change\s+(?:authentication|billing)|install\s+system[- ]wide)\b/i.test(text)) {
@@ -98,9 +101,12 @@ export class VoiceConversationController {
     }
     if(!this.bridge.available) throw new ConversationError('codex_unavailable');
     const thread=this.selected(s);
+    if(this.bridge.threads.activeId!==thread.id)throw new ConversationError('thread_changed');
     if(this.bridge.turns.active(thread.id) || this.ledger.uncertain(thread.id)) {s.phase='busy';this.add(s,'Codex has active or uncertain work in this conversation. Ask for status or review it on the computer.');return;}
     const p:BoundProposal={id:randomUUID(),text,threadId:thread.id,cwd:thread.cwd,model:thread.model,selected:this.bridge.threads.activeId??null,selectionVersion:this.bridge.threads.selectionVersion,generation:s.generation,project:sanitize(basename(thread.cwd),80),expiresAt:new Date(this.now()+45000).toISOString()};
     s.proposal=p;s.phase='awaiting_confirmation';s.error='';
+    const review=/\b(?:delete|remove|erase|wipe|reset|credentials?|passwords?|tokens?|secrets?|permissions?|billing|sandbox|authentication|firewall|administrator|sudo|force[- ]?push|deploy)\b/i.test(text)||/^(?:do (?:that|it)|fix it|okay|sure)[.!? ]*$/i.test(text);
+    if(s.autoSend&&!manual&&!review){p.autoAt=s.speechBusy?null:this.now()+3000;s.phase=s.speechBusy?'dictating':'countdown';return;}
     const excerpt=text.length>350?text.slice(0,350)+'… Review the full instruction on the screen.':text;
     this.add(s,'Proposed for '+p.project+': '+text,'system','I heard: '+excerpt+' In '+p.project+'. Should I send it? Say yes, send it, or cancel.');
   }
@@ -108,12 +114,13 @@ export class VoiceConversationController {
     const s=this.owner(deviceId,callId); const duplicate=this.ledger.get(confirmationId);
     if(duplicate) { if(duplicate.deviceId!==deviceId || duplicate.callId!==callId) throw new ConversationError('wrong_confirmation'); return this.status(deviceId,callId); }
     this.checkProposal(s); const p=s.proposal;
-    if(!p || p.id!==confirmationId || s.phase!=='awaiting_confirmation') throw new ConversationError('confirmation_unavailable');
+    if(!p || p.id!==confirmationId || !['awaiting_confirmation','countdown','dictating'].includes(s.phase)) throw new ConversationError('confirmation_unavailable');
     if(!this.bridge.available || this.bridge.turns.active(p.threadId) || this.ledger.uncertain(p.threadId)) {this.invalidate(s,'thread_busy');throw new ConversationError('thread_busy');}
     s.phase='submitting';s.proposal=null;
+    s.continuation=undefined;s.inFlight={id:p.id,dispatched:false};
     try {
       this.ledger.add({id:p.id,deviceId,callId,threadId:p.threadId,turnId:null,state:'submitting',submittedAt:new Date(this.now()).toISOString(),acceptedAt:null,firstOutputAt:null,finishedAt:null});
-    } catch {s.phase='rejected';s.error='submission_storage_unavailable';throw new ConversationError('submission_storage_unavailable');}
+    } catch {s.inFlight=undefined;s.phase='rejected';s.error='submission_storage_unavailable';throw new ConversationError('submission_storage_unavailable');}
     s.submissionId=p.id;
     let dispatched=false;const priorTurns=new Set(this.bridge.store.state.turns.filter(t=>t.threadId===p.threadId).map(t=>t.id));
     try {
@@ -127,16 +134,18 @@ export class VoiceConversationController {
         const thread=this.selected(s);
         if(thread.cwd!==p.cwd || thread.model!==p.model || this.bridge.threads.selectionVersion!==expectedVersion || (this.bridge.threads.activeId??null)!==expectedSelected) throw new ConversationError('thread_changed');
         dispatched=true;
+        if(s.inFlight)s.inFlight.dispatched=true;
       };
       const turnId=await this.bridge.send(p.threadId,p.text,guard);
       this.ledger.update(p.id,{turnId,state:'accepted',acceptedAt:new Date(this.now()).toISOString()});
-      if(this.sessions.get(callId)===s) {s.phase='running';s.error='';this.add(s,'Instruction accepted by Codex.');this.safeRefresh(s);}
+      if(this.sessions.get(callId)===s) {s.phase='running';s.error='';this.safeRefresh(s);}
     } catch(error) {
       const newTurnObserved=this.bridge.store.state.turns.some(t=>t.threadId===p.threadId && !priorTurns.has(t.id));
       const uncertain=dispatched && (!(error instanceof AppServerRejection) || newTurnObserved);
       try {this.ledger.update(p.id,{state:uncertain?'unknown':'rejected',finishedAt:uncertain?null:new Date(this.now()).toISOString()});} catch { /* Existing durable submitting record blocks replay. */ }
-      if(this.sessions.get(callId)===s) {s.phase=uncertain?'unknown':'rejected';s.error=uncertain?'submission_unknown':'submission_rejected';this.add(s,uncertain?"Submission status uncertain. I won't send it again automatically. Review it on the computer.":'Codex did not accept the instruction. Check the call, selected thread and Codex connection.');}
+      if(this.sessions.get(callId)===s&&s.phase!=='cancelled') {s.phase=uncertain?'unknown':'rejected';s.error=uncertain?'submission_unknown':'submission_rejected';this.add(s,uncertain?"Submission status uncertain. I won't send it again automatically. Review it on the computer.":'Codex did not accept the instruction. Check the call, selected thread and Codex connection.');}
     }
+    s.inFlight=undefined;
     if(this.sessions.get(callId)!==s) return null;
     return this.status(deviceId,callId);
   }
@@ -183,7 +192,7 @@ export class VoiceConversationController {
       else if(s.phase==='submitting') this.add(s,'Submission is already in progress. I will not send it twice.');
       else {
         if(s.queueNext&&this.controls){s.queueNext=false;const turn=this.bridge.turns.active(s.threadId);if(!turn)throw new ConversationError('thread_not_busy');const op=this.controls.propose(s.deviceId,s.threadId,turn.id,'queue',u.text);s.controlId=op.id;this.add(s,'Queue '+u.text+' after successful completion in '+op.cwd+'? Say yes to authorize one automatic follow-up, or cancel.');}
-        else {if(s.controlId&&this.controls){this.controls.cancel(s.deviceId,s.threadId,s.controlId);s.controlId=undefined;}if(s.proposal) this.invalidate(s,'proposal_replaced');this.propose(s,u.text);}
+        else {const text=s.continuation?s.continuation+' '+u.text:u.text;s.continuation=undefined;if(s.controlId&&this.controls){this.controls.cancel(s.deviceId,s.threadId,s.controlId);s.controlId=undefined;}if(s.proposal) this.invalidate(s,'proposal_replaced');this.propose(s,text);}
       }
     } catch(error) {
       const existing=this.sessions.get(call.callId);
@@ -208,7 +217,7 @@ export class VoiceConversationController {
     if(!s.proposal && (row.state!==state || ['accepted','running','awaitingApproval','unknown'].includes(s.phase))) s.phase=state;
     if(terminal(turn.status) && !s.terminalSpoken.has(turn.id)) {
       s.terminalSpoken.add(turn.id); if(!s.proposal)s.phase=state; const thread=this.bridge.threads.get(turn.threadId);
-      this.add(s,sanitize(turn.finalResponse || 'No final response was provided.',16000),turn.finalResponse?'codex':'system',spokenSummary(thread,turn));
+      this.add(s,sanitize(turn.finalResponse || 'No final response was provided.',16000),turn.finalResponse?'codex':'system',spokenResponse(thread,turn));
     }
   }
   private safeRefresh(s:Session) {try {this.refresh(s);} catch {s.error='submission_storage_unavailable';}}

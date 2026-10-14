@@ -20,7 +20,7 @@ export class TurnManager {
     beforeDispatch?.();
     this.starting.add(threadId);
     try {
-      const sandboxPolicy = this.threads.sandbox === 'read-only' ? { type: 'readOnly' } : { type: 'workspaceWrite', writableRoots: [thread.cwd], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true };
+      const sandboxPolicy = this.threads.policy(threadId) === 'read-only' ? { type: 'readOnly' } : { type: 'workspaceWrite', writableRoots: [thread.cwd], networkAccess: false, excludeTmpdirEnvVar: true, excludeSlashTmp: true };
       const response = object(await this.client.request('turn/start', { threadId, input: [{ type: 'text', text }], serviceTier: 'default', serviceTierForTurn: 'default', cwd: thread.cwd, approvalPolicy: 'on-request', approvalsReviewer: 'user', sandboxPolicy }));
       const wire = object(response.turn);
       if (!['inProgress','completed','failed','interrupted'].includes(String(wire.status))) throw new Error('Invalid turn/start response status');
@@ -84,6 +84,7 @@ export class TurnManager {
   }
   private item(turn: ManagedTurn, item: Record<string, unknown>): void {
     const itemId = identifier(item.id);
+    if(item.type==='userMessage'&&Array.isArray(item.content))turn.instruction=sanitize(item.content.map(raw=>{const c=object(raw);return c.type==='text'&&typeof c.text==='string'?c.text:'';}).filter(Boolean).join('\n'),32000);
     if (item.type === 'agentMessage' && typeof item.text === 'string') {
       if (item.phase === 'commentary') { this.messages.get(turn.threadId + ':' + turn.id)?.delete(itemId); return; }
       let items = this.messages.get(turn.threadId + ':' + turn.id); if (!items) { items = new Map(); this.messages.set(turn.threadId + ':' + turn.id, items); }

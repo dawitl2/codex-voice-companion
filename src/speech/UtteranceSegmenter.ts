@@ -4,6 +4,7 @@ export class UtteranceSegmenter {
   private pre: Buffer[] = []; private frames: Buffer[] = []; private onset = 0; private voiced = 0;
   private noise = .002; private began = 0; private lastVoice = 0; private silent = 0;
   get detecting() { return this.frames.length > 0; }
+  snapshot():SpeechSegment|null{return this.frames.length>=50&&this.voiced>=15?{pcm:Buffer.concat(this.frames),startedAt:this.began,endedAt:this.lastVoice}:null;}
   accept(pcm: Buffer, level: number, now: number): SpeechSegment | null {
     if (pcm.length !== 640 || !Number.isFinite(level) || level < 0 || level > 1) throw new Error('invalid_pcm');
     const speech = level >= Math.max(.008, this.noise * 2.5);
@@ -15,7 +16,7 @@ export class UtteranceSegmenter {
       return null;
     }
     this.frames.push(Buffer.from(pcm)); if (speech) { this.lastVoice = now; this.silent = 0; this.voiced++; } else this.silent++;
-    return this.silent >= 35 || this.frames.length >= 600 ? this.finish() : null;
+    return this.silent >= 60 || this.frames.length >= 1000 ? this.finish() : null;
   }
   finish(): SpeechSegment | null {
     const result = this.frames.length && this.voiced >= 15 ? { pcm: Buffer.concat(this.frames), startedAt: this.began, endedAt: this.lastVoice } : null;

@@ -1,4 +1,4 @@
-import type { BridgeEvent, Mode, RpcTransport } from '../types/index.js';
+import type { BridgeEvent, Mode, RpcTransport,ManagedThread } from '../types/index.js';
 import { EventBus } from '../events/EventBus.js';
 import { JsonStore } from '../storage/JsonStore.js';
 import { AppServerClient } from './AppServerClient.js';
@@ -13,6 +13,7 @@ export class Bridge {
   readonly events = new EventBus(); readonly store: JsonStore; readonly client: AppServerClient;
   readonly threads: ThreadManager; readonly turns: TurnManager; readonly approvals: ApprovalManager;
   authentication = 'Unverified'; plan: string | undefined; private closed = false;
+  ownershipGuard:((thread:ManagedThread)=>Promise<void>)|undefined;
   private verifiedConnection = false;
   get available(): boolean { return this.client.ready && this.verifiedConnection && !this.closed; }
   private readonly transport: RpcTransport;
@@ -62,6 +63,7 @@ export class Bridge {
   }
   async select(id: string): Promise<void> {
     await this.verifyAccount();
+    const selected=this.threads.get(id);if(selected.original){if(!this.ownershipGuard)throw Error('Stored session handoff is unavailable');await this.ownershipGuard(selected);}
     await this.verifyConfiguration(this.threads.get(id).cwd);
     if (!this.threads.loaded.has(id)) {
       const previous = this.threads.activeId;
@@ -69,8 +71,9 @@ export class Bridge {
       catch (error) { this.threads.loaded.delete(id); this.threads.get(id).status = 'unavailable'; this.threads.activeId = previous; this.store.save(); throw error; }
     }
     else { this.threads.get(id); this.threads.activeId = id; }
+    this.threads.remember(id);
   }
-  async send(id: string, text: string, beforeDispatch?: () => void): Promise<string> { await this.verifyAccount(); await this.verifyConfiguration(this.threads.get(id).cwd); return (await this.turns.start(id, text, beforeDispatch)).id; }
+  async send(id: string, text: string, beforeDispatch?: () => void): Promise<string> { const thread=this.threads.get(id);if(thread.original){if(!this.ownershipGuard)throw Error('Stored session handoff is unavailable');await this.ownershipGuard(thread);}await this.verifyAccount(); await this.verifyConfiguration(thread.cwd);const turn=(await this.turns.start(id, text, beforeDispatch)).id;this.threads.remember(id);return turn; }
   async verifyConfiguration(cwd?: string): Promise<void> {
     if (this.mode === 'mock') return;
     const config = object(object(await this.client.request('config/read', { includeLayers: false, ...(cwd ? { cwd } : {}) })).config);
