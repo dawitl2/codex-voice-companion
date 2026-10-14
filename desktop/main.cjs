@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, session, Tray, Menu, nativeImage, shell } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -21,7 +21,7 @@ function updateTray(){
 }
 async function quitCompletely(){if(await stop(true)===false)return;quitting=true;tray?.destroy();tray=undefined;window?.destroy();app.quit();}
 const permitted = new Map(Object.entries({ state: [], start: ['writable','notifications','sparkConfirmed'], stop: [], quit: [], project: [], create: ['label'], select: ['threadId'],
-  send: ['threadId','text'], interrupt: ['threadId'], pair: [], revoke: ['deviceId'], nominate: ['approvalId'], decision: ['approvalId','accept'], trust: ['deviceId','fingerprint'],discover:[],resumeStored:['threadId'],latest:[] }));
+  send: ['threadId','text'], interrupt: ['threadId'], pair: [], revoke: ['deviceId'], nominate: ['approvalId'], decision: ['approvalId','accept'], trust: ['deviceId','fingerprint'],discover:[],resumeStored:['threadId'],latest:[],openOriginal:['threadId'] }));
 function validAction(type, value) {
   const keys = permitted.get(type);
   if (!keys || !value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !keys.includes(k))) throw Error('Unsupported action');
@@ -132,11 +132,16 @@ app.whenReady().then(() => {
     if (type === 'start') return start(payload);
     if (type === 'stop') return { stopped: await stop(true) };
     if (type === 'quit') { await quitCompletely(); return {}; }
+    if(type==='openOriginal'){
+      if(typeof payload.threadId!=='string'||!/^[a-f0-9-]{36}$/.test(payload.threadId)||!latest.threads?.some(t=>t.id===payload.threadId))throw Error('Select a known original Codex chat');
+      await shell.openExternal('codex://threads/'+payload.threadId);return {};
+    }
     return request(type, payload);
   });
   tray=new Tray(nativeImage.createFromPath(path.join(__dirname,'icon.ico')));tray.on('click',restore);tray.on('double-click',restore);updateTray();
   window.on('close', e => { if(!quitting){e.preventDefault();window.hide();} });
   window.loadFile(rendererPath);
+  if(app.commandLine.hasSwitch('start-companion'))void start({writable:config.writable,notifications:config.notifications,sparkConfirmed:config.sparkConfirmed}).catch(e=>{latest.error=e.message;});
 });
 app.on('window-all-closed',()=>{if(quitting)app.quit();});
 app.on('before-quit',e=>{if(!quitting){e.preventDefault();void quitCompletely();}});

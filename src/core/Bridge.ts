@@ -72,6 +72,7 @@ export class Bridge {
     }
     else { this.threads.get(id); this.threads.activeId = id; }
     this.threads.remember(id);
+    this.threads.get(id).observed=false;this.store.save();
   }
   async send(id: string, text: string, beforeDispatch?: () => void): Promise<string> { const thread=this.threads.get(id);if(thread.original){if(!this.ownershipGuard)throw Error('Stored session handoff is unavailable');await this.ownershipGuard(thread);}await this.verifyAccount(); await this.verifyConfiguration(thread.cwd);const turn=(await this.turns.start(id, text, beforeDispatch)).id;this.threads.remember(id);return turn; }
   async verifyConfiguration(cwd?: string): Promise<void> {
@@ -91,6 +92,17 @@ export class Bridge {
     if (features.hooks !== false || features.apps !== false) throw new Error('Inherited hooks or apps were not disabled');
   }
   history(): BridgeEvent[] { return structuredClone(this.store.state.events); }
+  observedUpdate(threadId:string,turnId?:string):void {
+    const event=this.normalizer.create(turnId?'turn.progress':'thread.resumed','Original Codex chat synchronized',{threadId,...(turnId?{turnId}:{})});
+    this.store.state.events.push(event);this.store.save();this.events.emit(event);
+  }
+  observedCompletion(threadId:string,turnId:string):void {
+    const turn=this.turns.get(threadId,turnId);
+    if(!turn||!terminal(turn.status)||this.threads.loaded.has(threadId))return;
+    const type=turn.status==='completed'?'turn.completed':turn.status==='failed'?'turn.failed':'turn.interrupted';
+    const event=this.normalizer.create(type,'Original Codex conversation '+turn.status,{threadId,turnId,metadata:{observed:true}});
+    this.store.state.events.push(event);this.store.save();this.events.emit(event);
+  }
   versionInfo(): { bridge: string; node: string; codex: string } { return { bridge: '0.1.0', node: process.versions.node, codex: this.mode === 'mock' ? 'offline mock' : 'version' in this.transport && typeof this.transport.version === 'string' ? this.transport.version : 'unverified' }; }
   private record(type: BridgeEvent['type'], summary: string, threadId?: string): void {
     const event = this.normalizer.create(type, summary, threadId ? { threadId } : {}); this.store.state.events.push(event); this.store.save(); this.events.emit(event);

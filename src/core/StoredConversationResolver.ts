@@ -9,6 +9,9 @@ export const developmentConversation=(name:string,cwd:string)=>/[\\/]\.(?:runtim
 export class StoredConversationResolver {
   private rows:StoredConversation[]=[];diagnostic='Discover stored Codex conversations';private resolving=false;
   private readonly ownership:SessionOwnership;
+  private monitor:NodeJS.Timeout|undefined;private polling=false;private closed=false;
+  private readonly observed=new Map<string,Map<string,string>>();
+  private readonly fingerprints=new Map<string,string>();
   constructor(private readonly bridge:Bridge,assets:string,pid:()=>number|undefined,private readonly locked:()=>boolean){
     this.ownership=new SessionOwnership(assets,pid);bridge.ownershipGuard=async t=>{if(!t.rolloutPath)throw Error('Original session path is unavailable');await this.ownership.check(t.rolloutPath);};
   }
@@ -24,7 +27,6 @@ export class StoredConversationResolver {
         const model=typeof t.model==='string'?t.model:'';let reason='';
         if(!['cli','vscode','appServer'].includes(source)||t.parentThreadId||t.ephemeral===true)reason='Internal or ephemeral session';
         else if(developmentConversation(label,cwd))reason='Development conversation excluded from automatic selection';
-        else if(/codex-voice$/i.test(cwd))reason='Current companion development workspace';
         else if(!model||t.modelProvider!=='openai')reason='Original supported model metadata unavailable';
         else if(object(t.status).type==='active'||object(t.status).type==='systemError')reason='Original session active or unavailable';
         else {try{projectDirectory(cwd);}catch{reason='Original project is unavailable on this PC';}}
@@ -33,7 +35,7 @@ export class StoredConversationResolver {
       }catch{/* Invalid records cannot become targets. */}}
       cursor=typeof response.nextCursor==='string'?response.nextCursor:null;if(!cursor)break;
     }
-    this.rows=[...rows.values()].sort((a,b)=>Date.parse(b.updatedAt)-Date.parse(a.updatedAt));this.diagnostic='Stored sessions found. Active original clients must release their conversation.';return this.list();
+    this.rows=[...rows.values()].sort((a,b)=>Date.parse(b.updatedAt)-Date.parse(a.updatedAt));return this.list();
   }
   async select(id:string){
     if(this.locked()||this.resolving||this.bridge.store.state.turns.some(t=>!terminal(t.status)&&this.bridge.threads.loaded.has(t.threadId)))throw Error('Finish the current call, instruction or task before changing conversation');
@@ -57,15 +59,39 @@ export class StoredConversationResolver {
     }catch(e){this.bridge.threads.activeId=previous;if(imported){this.bridge.threads.loaded.delete(id);this.bridge.store.state.threads=this.bridge.store.state.threads.filter(t=>t.id!==id);this.bridge.store.state.turns=this.bridge.store.state.turns.filter(t=>t.threadId!==id);this.bridge.store.save();}if(resumed)await this.bridge.client.request('thread/unsubscribe',{threadId:id}).catch(()=>{});row.eligible=false;row.reason=e instanceof Error?e.message:'Stored handoff unavailable';throw e;}
     finally{this.resolving=false;}
   }
-  async latest(preferred?:string){
-    if(this.locked()||this.resolving||this.bridge.store.state.turns.some(t=>!terminal(t.status)&&this.bridge.threads.loaded.has(t.threadId)))return;
-    await this.discover();
-    const known=this.bridge.threads.list().filter(t=>!developmentConversation(t.label,t.cwd)).sort((a,b)=>Date.parse(b.lastSelectedAt??b.updatedAt??b.createdAt)-Date.parse(a.lastSelectedAt??a.updatedAt??a.createdAt));
-    const remembered=known.find(t=>t.id===preferred)??known[0];
-    const newest=this.rows.find(r=>r.eligible);
-    if(remembered&&(!newest||Date.parse(remembered.lastSelectedAt??remembered.updatedAt??remembered.createdAt)>=Date.parse(newest.updatedAt))){try{await this.bridge.select(remembered.id);return;}catch{/* Display discovery alternatives. */}}
-    for(const row of this.rows.filter(r=>r.eligible).slice(0,5)){try{await this.select(row.id);return;}catch{/* Try the next genuinely eligible stored session. */}}
-    this.diagnostic='No safely released compatible recent session. Choose one on the desktop after closing its original Codex client.';
+  /** The actual newest chat is the target, even when its original client owns it.
+   * Observation is read-only. A failed live handoff never falls back to an older chat. */
+  async latest(_preferred?:string){await this.poll();}
+  async startMonitoring(){await this.poll();if(!this.closed&&!this.monitor){this.monitor=setInterval(()=>{void this.poll().catch(()=>{this.diagnostic='Latest Codex history is temporarily unavailable; no conversation was substituted';});},3000);this.monitor.unref();}}
+  private async poll(){
+    if(this.closed||this.polling||this.resolving||!this.bridge.available)return;
+    this.polling=true;
+    try{
+      await this.discover();if(this.closed)return;
+      const newest=this.rows.find(r=>r.model&&!/[\\/]\.(?:runtime|cache)(?:[\\/]|$)/i.test(r.cwd)&&!['Internal or ephemeral session','Original project is unavailable on this PC','Original stored resource path unavailable','Original supported model metadata unavailable'].includes(r.reason));
+      if(!newest){this.diagnostic='No local Codex chat metadata is available. ChatGPT cloud chats are not exposed by the local Codex server.';return;}
+      const pinned=this.locked()||this.bridge.store.state.turns.some(t=>!terminal(t.status)&&this.bridge.threads.loaded.has(t.threadId));
+      const id=pinned?this.bridge.threads.activeId:newest.id;
+      const row=this.rows.find(r=>r.id===id);if(!row)return;
+      if(this.bridge.threads.loaded.has(row.id)){this.diagnostic='Using this exact original conversation';return;}
+      const wire=object(object(await this.bridge.client.request('thread/read',{threadId:row.id,includeTurns:true})).thread);
+      if(this.closed||wire.id!==row.id||!samePath(requiredString(wire.cwd),row.cwd)||!Array.isArray(wire.turns))return;
+      let local=this.bridge.store.state.threads.find(t=>t.id===row.id);
+      if(!local){local={id:row.id,cwd:row.cwd,label:row.label,model:row.model,status:'unavailable',mode:'real',createdAt:new Date(Number(wire.createdAt)*1000).toISOString(),updatedAt:row.updatedAt,original:true,observed:true,source:row.source,rolloutPath:row.path,sandbox:'read-only'};this.bridge.store.state.threads.push(local);}
+      else {local.label=row.label;local.updatedAt=row.updatedAt;local.observed=true;local.status='unavailable';}
+      if(!pinned)this.bridge.threads.activeId=row.id;
+      this.bridge.turns.observe(row.id,wire);
+      const last=this.bridge.store.state.turns.filter(t=>t.threadId===row.id).at(-1);
+      const fingerprint=JSON.stringify([row.label,row.updatedAt,last?.id,last?.status,last?.instruction?.length,last?.finalResponse.length]);
+      if(this.fingerprints.get(row.id)!==fingerprint){this.fingerprints.set(row.id,fingerprint);this.bridge.observedUpdate(row.id,last?.id);}
+      const prior=this.observed.get(row.id),states=new Map<string,string>();
+      for(const raw of wire.turns.slice(-12)){const turn=object(raw),turnId=identifier(turn.id),state=String(turn.status);states.set(turnId,state);
+        // First observation establishes a baseline. Only subsequently observed real completions ring.
+        if(prior&&['completed','failed','interrupted'].includes(state)&&(prior.get(turnId)==='inProgress'||!prior.has(turnId)))this.bridge.observedCompletion(row.id,turnId);
+      }
+      this.observed.set(row.id,states);while(this.observed.size>8)this.observed.delete(this.observed.keys().next().value!);
+      this.diagnostic='Watching the actual latest Codex chat. Live-client sending requires a supported handoff; no older chat will be substituted.';
+    }finally{this.polling=false;}
   }
-  close(){this.ownership.close();}
+  close(){this.closed=true;if(this.monitor)clearInterval(this.monitor);this.ownership.close();}
 }

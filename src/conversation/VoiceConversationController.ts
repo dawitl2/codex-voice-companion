@@ -78,7 +78,7 @@ export class VoiceConversationController {
     const s=this.owner(deviceId,callId); if(s.phase==='submitting') throw new ConversationError('submission_in_progress');
     s.generation++; this.invalidate(s,'thread_changed'); const generation=s.generation;
     s.controlId=undefined;s.queueNext=false;
-    this.bridge.threads.get(threadId); await this.bridge.select(threadId);
+    if(this.bridge.threads.get(threadId).observed)this.bridge.threads.activeId=threadId;else await this.bridge.select(threadId);
     if(this.owner(deviceId,callId)!==s || s.generation!==generation) throw new ConversationError('thread_changed');
     s.threadId=threadId; s.submissionId=null; s.phase='ready';s.error=''; const t=this.selected(s);
     this.add(s,'Selected '+sanitize(t.label,80)+' in '+sanitize(basename(t.cwd),80)+'.');
@@ -192,7 +192,14 @@ export class VoiceConversationController {
       else if(s.phase==='submitting') this.add(s,'Submission is already in progress. I will not send it twice.');
       else {
         if(s.queueNext&&this.controls){s.queueNext=false;const turn=this.bridge.turns.active(s.threadId);if(!turn)throw new ConversationError('thread_not_busy');const op=this.controls.propose(s.deviceId,s.threadId,turn.id,'queue',u.text);s.controlId=op.id;this.add(s,'Queue '+u.text+' after successful completion in '+op.cwd+'? Say yes to authorize one automatic follow-up, or cancel.');}
-        else {const text=s.continuation?s.continuation+' '+u.text:u.text;s.continuation=undefined;if(s.controlId&&this.controls){this.controls.cancel(s.deviceId,s.threadId,s.controlId);s.controlId=undefined;}if(s.proposal) this.invalidate(s,'proposal_replaced');this.propose(s,text);}
+        else {
+          const target=this.selected(s);
+          if(target.observed&&!this.bridge.turns.active(target.id)){
+            try{await this.bridge.select(target.id);}
+            catch{s.phase='rejected';s.error='original_client_active';this.add(s,'This exact chat is still owned by the original Codex client. Your instruction has not been sent. Release the idle chat in that client before trying again. I will not send it to a different conversation.');return;}
+          }
+          const text=s.continuation?s.continuation+' '+u.text:u.text;s.continuation=undefined;if(s.controlId&&this.controls){this.controls.cancel(s.deviceId,s.threadId,s.controlId);s.controlId=undefined;}if(s.proposal) this.invalidate(s,'proposal_replaced');this.propose(s,text);
+        }
       }
     } catch(error) {
       const existing=this.sessions.get(call.callId);

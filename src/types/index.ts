@@ -6,6 +6,7 @@ export interface BridgeEvent {
   threadId?: string; turnId?: string; metadata?: Record<string, string | number | boolean>;
 }
 export interface ManagedThread {
+  observed?: boolean;
   sandbox?: 'read-only'|'workspace-write'; original?: boolean; source?: string; rolloutPath?: string; updatedAt?: string; lastSelectedAt?: string;
   id: string; cwd: string; label: string; createdAt: string; model: string;
   status: 'ready' | 'unavailable'; mode: Mode;

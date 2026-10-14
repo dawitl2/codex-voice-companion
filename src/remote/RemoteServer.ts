@@ -225,7 +225,7 @@ export class RemoteServer {
             if (['call.preferences.update','call.preferences.request'].includes(m.type)) this.send(session, 'call.preferences.response', { enabled: calls.manager.preferences(session.deviceId) }, m.id);
             else if (m.type === 'call.start') {
               const threadId=String(p.threadId);
-              if(!this.bridge.available||this.bridge.threads.activeId!==threadId||!this.bridge.threads.loaded.has(threadId))throw new CallError('select_conversation');
+              if(!this.bridge.available||this.bridge.threads.activeId!==threadId||(!this.bridge.threads.loaded.has(threadId)&&!this.bridge.threads.get(threadId).observed))throw new CallError('select_conversation');
               const thread=this.bridge.threads.get(threadId),turn=this.bridge.store.state.turns.filter(t=>t.threadId===threadId).at(-1);
               const outgoing=calls.manager.outgoing(session.deviceId,thread.id,turn?.id??'no_task',this.bridge.mode,m.id);
               this.send(session,'call.media.response',{...calls.manager.accept(session.deviceId,outgoing.callId,identity),mediaUrl:calls.media.endpoint,format:PCM},m.id);

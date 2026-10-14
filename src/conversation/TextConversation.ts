@@ -10,7 +10,7 @@ export class TextConversation {
   constructor(private readonly bridge: Bridge, readonly ledger: SubmissionLedger) {}
   connection(device: string, delta: 1 | -1) { const n = Math.max(0,(this.connected.get(device)??0)+delta); if(n)this.connected.set(device,n);else{this.connected.delete(device);this.generation.set(device,(this.generation.get(device)??0)+1);} }
   private owner(device:string){if(!this.connected.has(device)||!this.bridge.available)throw new ChatError('chat_disconnected');}
-  async select(device:string,threadId:string){this.owner(device);const gen=this.generation.get(device)??0;await this.bridge.select(threadId);this.owner(device);if((this.generation.get(device)??0)!==gen)throw new ChatError('chat_disconnected');return this.status(device,threadId);}
+  async select(device:string,threadId:string){this.owner(device);const gen=this.generation.get(device)??0;if(this.bridge.threads.get(threadId).observed)this.bridge.threads.activeId=threadId;else await this.bridge.select(threadId);this.owner(device);if((this.generation.get(device)??0)!==gen)throw new ChatError('chat_disconnected');return this.status(device,threadId);}
   status(device:string,threadId:string){
     this.owner(device);const thread=this.bridge.threads.get(threadId),rows=this.bridge.store.state.turns.filter(t=>t.threadId===threadId).slice(-12);
     for(const row of this.ledger.list().filter(r=>r.threadId===threadId&&r.turnId)){const t=rows.find(t=>t.id===row.turnId);if(t&&terminal(t.status)&&row.state!==t.status)this.ledger.update(row.id,{state:t.status as 'completed'|'failed'|'interrupted',finishedAt:t.finishedAt??null});}
@@ -21,6 +21,9 @@ export class TextConversation {
   async send(device:string,threadId:string,requestId:string,text:string){
     this.owner(device);const old=this.ledger.get(requestId);if(old){if(old.deviceId!==device||old.threadId!==threadId||old.callId!==requestId)throw new ChatError('wrong_submission');return this.status(device,threadId);}
     if(!text.trim()||text.length>2000||sanitize(text,2000)!==text||/[\x00-\x1f\x7f]/.test(text))throw new ChatError('invalid_instruction');
+    if(this.bridge.threads.activeId===threadId&&this.bridge.threads.get(threadId).observed&&!this.bridge.turns.active(threadId)){
+      try{await this.bridge.select(threadId);}catch{throw new ChatError('original_client_active');}
+    }
     if(this.bridge.threads.activeId!==threadId||!this.bridge.threads.loaded.has(threadId))throw new ChatError('select_conversation');
     if(this.bridge.turns.active(threadId)||this.ledger.uncertain(threadId))throw new ChatError('thread_busy');
     const thread=this.bridge.threads.get(threadId),version=this.bridge.threads.selectionVersion,gen=this.generation.get(device)??0,model=thread.model,cwd=thread.cwd;

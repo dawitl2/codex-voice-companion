@@ -23,6 +23,7 @@ function render(s) {
   $('current-conversation').textContent=t?.label||'Ready when you are.';
   $('current-project').textContent=t?t.cwd.split(/[\\/]/).filter(Boolean).at(-1)+' · '+(turns.at(-1)?.status||'Ready'):'Start Companion to synchronize your last eligible conversation.';
   $('chat-heading').textContent=t?.label||'Choose a conversation'; $('task-state').textContent=turns.at(-1)?.status||'Ready';
+  $('open-original').disabled=!t;
   $('messages').innerHTML=turns.map(x=>`<div class="message"><small>You · ${esc(x.status)}</small>${esc(x.instruction||'Earlier instruction unavailable in local history')}</div><div class="message response"><small>Codex</small>${esc(x.finalResponse||'Waiting for the actual response…')}</div>`).join('');
   $('send').disabled=!s.codexConnected||!t||busy||['running','starting','awaitingApproval','unknown'].includes(turns.at(-1)?.status);
   $('create').disabled=!s.codexConnected||busy; $('pair').disabled=!s.running||busy; $('interrupt').disabled=!s.codexConnected||!['running','starting','awaitingApproval'].includes(turns.at(-1)?.status);
@@ -42,6 +43,7 @@ $('choose-project').onclick=()=>perform(async()=>{await action('project');initia
 $('create').onclick=()=>perform(async()=>{await action('create',{label:$('thread-label').value.trim()||'New conversation'});$('thread-label').value='';});
  $('discover').onclick=()=>perform(()=>action('discover'));$('latest').onclick=()=>perform(()=>action('latest'));
 $('send').onclick=()=>perform(async()=>{await action('send',{threadId:state.selectedThreadId,text:$('instruction').value});$('instruction').value='';});
+$('open-original').onclick=()=>perform(()=>action('openOriginal',{threadId:state.selectedThreadId}));
 $('interrupt').onclick=()=>{if(confirm('Request interruption of this actual task? Wait for the authoritative outcome.'))perform(()=>action('interrupt',{threadId:state.selectedThreadId}));};
 $('pair').onclick=()=>perform(async()=>{const p=await action('pair');$('invitation').hidden=false;$('invitation').innerHTML=`<p>Enter this private address and one-time code in Android Settings → PC monitor.</p><code>${esc(p.endpoint)}</code><strong>${esc(p.code)}</strong><small>Expires ${esc(new Date(p.expiresAt).toLocaleTimeString())}. Never share this invitation.</small>`;setTimeout(()=>{$('invitation').textContent='Invitation expired. Request a fresh one.';},Math.max(0,Date.parse(p.expiresAt)-Date.now()));});
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;

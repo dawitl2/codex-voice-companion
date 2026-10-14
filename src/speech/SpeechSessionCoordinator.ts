@@ -33,7 +33,8 @@ export class SpeechSessionCoordinator {
   this.owner(device,id);const call=this.calls.status(device,id),thread=this.bridge.store.state.threads.find(t=>t.id===call.threadId);
   const turn=call.kind==='conversation'?this.bridge.store.state.turns.filter(t=>t.threadId===call.threadId).at(-1):this.bridge.store.state.turns.find(t=>t.threadId===call.threadId&&t.id===call.turnId);
   const project=thread?sanitize(basename(thread.cwd),80):'your selected project';
-  const greeting=turn&&['starting','running'].includes(turn.status)?'Connected. Codex is still working in '+project+'.':turn?.status==='awaitingApproval'?'Connected. Approval is waiting on your PC.':'Connected to Codex in '+project+'. What would you like to do?';
+  const chat=thread?sanitize(thread.label,80):project;
+  const greeting=turn&&['starting','running'].includes(turn.status)?'Connected to '+chat+'. Codex is still working.':turn?.status==='awaitingApproval'?'Connected to '+chat+'. Approval is waiting on your PC.':'Connected to '+chat+'. What would you like to do?';
   return{callId:id,text:call.kind!=='conversation'&&thread&&turn?spokenResponse(thread,turn):(call.mode==='mock'?'Simulated. ':'')+greeting,mode:call.mode,taskState:turn?.status??'unavailable'};
  }
 

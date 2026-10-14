@@ -122,6 +122,23 @@ export class TurnManager {
     }
     this.store.save(); // Unknown turns absent from history deliberately remain blocked.
   }
+  /** Mirror supported thread/read history without resuming or emitting historical completions. */
+  observe(threadId: string, wire: Record<string, unknown>): void {
+    if (this.threads.loaded.has(threadId)) return;
+    if (!Array.isArray(wire.turns)) throw new Error('Original conversation history unavailable');
+    for (const raw of wire.turns.slice(-12)) {
+      const t = object(raw), id = identifier(t.id);
+      if (!['inProgress','completed','failed','interrupted'].includes(String(t.status))) continue;
+      const startedAt = typeof t.startedAt === 'number' ? new Date(t.startedAt * 1000).toISOString() : this.get(threadId,id)?.startedAt??new Date().toISOString();
+      let turn = this.get(threadId,id);
+      if (!turn) { turn={id,threadId,startedAt,status:'running',finalResponse:'',commandResults:[],completionEmitted:true};this.store.state.turns.push(turn); }
+      turn.status = t.status === 'inProgress' ? 'running' : t.status as TurnStatus;
+      turn.startedAt=startedAt;
+      if (typeof t.completedAt === 'number') turn.finishedAt=new Date(t.completedAt * 1000).toISOString();
+      if (Array.isArray(t.items)) for (const item of t.items) this.item(turn,object(item));
+    }
+    this.store.save();
+  }
   approvalState(threadId: string, turnId: string, waiting: boolean): void {
     const turn = this.get(threadId, turnId); if (turn && !terminal(turn.status)) turn.status = waiting ? 'awaitingApproval' : 'running'; this.store.save();
   }

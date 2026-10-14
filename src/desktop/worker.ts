@@ -46,7 +46,6 @@ async function action(type: string, p: Record<string, unknown>): Promise<unknown
     service = new CompanionService({ assets: String(config.assets), data: String(config.data), project,
       codex: String(config.codex), endpoint: 'wss://' + dns + '/remote', writable: config.writable === true, notifications: config.notifications === true });
     await service.start();
-    await service.recent.latest(typeof config.selectedThreadId==='string'?config.selectedThreadId:undefined).catch(()=>{});
     return { ...service.state(), tailscale: true };
   }
   if (type === 'stop') { await stop(); return { stopped: true }; }
@@ -59,7 +58,7 @@ async function action(type: string, p: Record<string, unknown>): Promise<unknown
     case 'latest': await s.recent.latest();return s.state();
     case 'create': return { threadId: await s.bridge.create(s.options.project, text('label', 80)) };
     case 'select': await s.bridge.select(identifier(p.threadId)); return s.state();
-    case 'send': { const id = identifier(p.threadId); if (s.bridge.threads.activeId !== id) throw new Error('Select this conversation before sending'); return { turnId: await s.bridge.send(id, text('text', 2000)) }; }
+    case 'send': { const id = identifier(p.threadId); if (s.bridge.threads.activeId !== id) throw new Error('Select this conversation before sending');if(s.bridge.threads.get(id).observed){if(s.bridge.turns.active(id))throw Error('The original Codex chat is still working. No instruction was sent.');await s.bridge.select(id);}return { turnId: await s.bridge.send(id, text('text', 2000)) }; }
     case 'interrupt': { const t = s.bridge.turns.active(identifier(p.threadId)); if (!t) throw new Error('No active turn'); await s.bridge.turns.interrupt(t.threadId, t.id); return { requested: true }; }
     case 'pair': return { ...s.registry.beginPairing(), endpoint: s.remote.endpoint.href };
     case 'revoke': { const id = identifier(p.deviceId); s.registry.revoke(id); s.remote.revoke(id); return { revoked: true }; }

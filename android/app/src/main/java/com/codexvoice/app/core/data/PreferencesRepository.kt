@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import com.codexvoice.app.core.model.*
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import java.io.IOException
@@ -35,7 +36,12 @@ class DataStorePreferencesRepository(private val store: DataStore<Preferences>) 
     private val pitch = floatPreferencesKey("speech_pitch")
     private val automatic = booleanPreferencesKey("auto_speak_summary")
     private val autoSend = booleanPreferencesKey("auto_send_instructions")
-    override val preferences = store.data.catch { error ->
+    private val latestChatCalling = booleanPreferencesKey("latest_chat_calling_v2")
+    override val preferences = store.data.onStart {
+        // The owner explicitly requested automatic incoming completion calls in this update.
+        // This changes app preferences only; Android notification/microphone grants remain authoritative.
+        store.edit { p -> if(p[latestChatCalling]!=true){p[enabled]=true;p[calls]=true;p[completion]=true;p[latestChatCalling]=true} }
+    }.catch { error ->
         if (error is IOException) emit(emptyPreferences()) else throw error
     }.map { p -> UserPreferences(
         ThemeMode.entries.firstOrNull { it.name == p[theme] } ?: ThemeMode.DARK,

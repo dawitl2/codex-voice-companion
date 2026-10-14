@@ -70,7 +70,6 @@ private fun CallAction(label: String, icon: androidx.compose.ui.graphics.vector.
         FilledIconButton(onClick, Modifier.size(72.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = color, contentColor = foreground)) {
             Icon(icon, label, Modifier.size(30.dp))
         }
-        Text(label, style = MaterialTheme.typography.labelLarge)
     }
 }
 @Composable
@@ -91,15 +90,13 @@ fun ActiveCallScreen(session: CallSession, onMute: () -> Unit, onHangUp: () -> U
                             Icon(if (session.demoMuted) Icons.Default.MicOff else Icons.Default.Mic,
                                 if (session.demoMuted) "Unmute demo" else "Mute demo")
                         }
-                        Text(if (session.demoMuted) "Demo muted" else "Demo mute", style = MaterialTheme.typography.labelLarge)
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         FilledTonalIconButton({}, enabled = false) { Icon(Icons.AutoMirrored.Filled.VolumeUp, "Speaker unavailable") }
-                        Text("Speaker · later", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                Button(onHangUp, Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFFF453A), contentColor = androidx.compose.ui.graphics.Color.White)) {
-                    Icon(Icons.Default.CallEnd, null); Spacer(Modifier.width(10.dp)); Text("Hang up")
+                FilledIconButton(onHangUp, Modifier.size(72.dp).align(Alignment.CenterHorizontally), colors = IconButtonDefaults.filledIconButtonColors(containerColor = androidx.compose.ui.graphics.Color(0xFFFF453A), contentColor = androidx.compose.ui.graphics.Color.White)) {
+                    Icon(Icons.Default.CallEnd, "Hang up", Modifier.size(30.dp))
                 }
             }
         }

@@ -60,7 +60,7 @@ export class CompanionService {
       { manager: this.calls, media: this.media, speech: this.speech, conversation: this.voice }, this.controls, this.chat,this.recent);
   }
   async start() {
-    try { await this.bridge.connect(); await this.speech.initialization; await this.remote.start(); }
+    try { await this.bridge.connect(); await this.speech.initialization; await this.recent.startMonitoring();await this.remote.start(); }
     catch (e) { await this.stop(); throw e; }
   }
   stop(): Promise<void> {

@@ -27,7 +27,7 @@ class ChatController(private val client:RemoteClient,parent:CoroutineScope) {
     init {
         scope.launch{client.state.collect{ready=it.status==RemoteStatus.CONNECTED;if(!ready){pending.clear();mutable.value=state.value.copy(connected=false,sending=false,error="Codex Voice is unavailable. Check your PC connection.")}}}
         scope.launch{client.chat.collect{m->val p=pending.remove(m.correlationId)?:return@collect;if(p.first!=selected)return@collect;
-            if(m.type=="chat.error")mutable.value=state.value.copy(sending=false,error=when(m.payload["code"].asString){"submission_unknown"->"Acceptance uncertain. Check PC; do not resend.";"thread_busy"->"Task active or uncertain. Review its outcome first.";else->"Request unavailable. Reconnect or select the conversation again."})
+            if(m.type=="chat.error")mutable.value=state.value.copy(sending=false,error=when(m.payload["code"].asString){"original_client_active"->"Not sent. This exact chat is still owned by Codex. Release its idle session before sending from the phone.";"submission_unknown"->"Acceptance uncertain. Check PC; do not resend.";"thread_busy"->"Task active or uncertain. Review its outcome first.";else->"Request unavailable. Reconnect or select the conversation again."})
             else mutable.value=ChatWire.parse(m.payload)
         }}
         scope.launch{while(isActive){delay(1200);val expired=pending.filterValues{System.currentTimeMillis()-it.second>35000}.keys;if(expired.isNotEmpty()){expired.forEach{pending.remove(it)};mutable.value=state.value.copy(sending=false,error="Request timed out. Check PC before resending.")};if(opened&&ready&&selected.isNotBlank()&&pending.isEmpty())request("chat.status.request")}}

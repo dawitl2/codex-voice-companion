@@ -189,6 +189,5 @@ import kotlinx.coroutines.delay
             shape = CircleShape, colors = IconButtonDefaults.filledIconButtonColors(containerColor = background, contentColor = foreground)) {
             Icon(icon, null, Modifier.size(30.dp))
         }
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
