@@ -89,7 +89,7 @@ export class StoredConversationResolver {
       const prior=this.observed.get(row.id),states=new Map<string,string>();
       for(const raw of wire.turns.slice(-12)){const turn=object(raw),turnId=identifier(turn.id),state=String(turn.status);states.set(turnId,state);
         // First observation establishes a baseline. Only subsequently observed real completions ring.
-        if(prior&&['completed','failed','interrupted'].includes(state)&&(prior.get(turnId)==='inProgress'||!prior.has(turnId)))this.bridge.observedCompletion(row.id,turnId);
+        if(prior&&['completed','failed','interrupted'].includes(state)&&prior.get(turnId)!==state)this.bridge.observedCompletion(row.id,turnId);
       }
       this.observed.set(row.id,states);while(this.observed.size>8)this.observed.delete(this.observed.keys().next().value!);
       this.diagnostic='Watching the actual latest Codex chat. Live-client sending requires a supported handoff; no older chat will be substituted.';
