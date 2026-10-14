@@ -30,6 +30,9 @@ object PushReceiver {
         val store = PushStore.get(context); val now = System.currentTimeMillis()
         val event = PushParser.parse(data, KeystoreCredentialStore(context).load(), now) ?: run { PushDiagnostics.record(context, "envelope_rejected"); return }
         if (!store.accept(event, now)) { PushDiagnostics.record(context, "local_filtered"); return }
+        if(com.codexvoice.app.core.calls.CallRuntime.state.value.phase in setOf(com.codexvoice.app.core.calls.LivePhase.OFFERED,com.codexvoice.app.core.calls.LivePhase.CONNECTING,com.codexvoice.app.core.calls.LivePhase.ACTIVE,com.codexvoice.app.core.calls.LivePhase.RECONNECTING)){
+            TaskNotifications.cancel(context,event.eventId);PushDiagnostics.record(context,"local_filtered");return
+        }
         val callPrefs=kotlinx.coroutines.runBlocking{com.codexvoice.app.core.data.DataStorePreferencesRepository(context.applicationContext.preferencesStore).preferences.first()}
         if(allowVoip&&event.mode=="real"&&callPrefs.notificationsEnabled&&callPrefs.callInvitations&&TaskNotifications.permission(context)&&!com.codexvoice.app.core.calls.CallRuntime.state.value.serviceRunning){
             com.codexvoice.app.core.calls.VoipCallService.incoming(context,event);store.receipt(event.eventId,"posted");PushDiagnostics.record(context,"call_service_requested");return

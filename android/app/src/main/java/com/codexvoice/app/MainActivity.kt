@@ -56,5 +56,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent);receiveCallIntent(intent) }
+    override fun onStart() { super.onStart(); com.codexvoice.app.core.calls.CallNotifications.activityStarted(this) }
+    override fun onStop() { com.codexvoice.app.core.calls.CallNotifications.activityStopped(this); super.onStop() }
     override fun onDestroy() { runtime.release(); super.onDestroy() }
 }

@@ -60,9 +60,9 @@ fun CodexVoiceApp(viewModel: DashboardViewModel) {
     val pendingAnswer by viewModel.pendingIncomingAnswer.collectAsStateWithLifecycle()
     var chatOpen by remember{mutableStateOf(false)}
     var outgoingThread by remember{mutableStateOf<String?>(null)}
-    LaunchedEffect(liveCall.phase){if(liveCall.phase==LivePhase.OFFERED){chatOpen=false;viewModel.hideChat()}}
     val openChat={val id=conversationState.selection?.threadId?:liveCall.offer?.threadId?:dashboard.remote?.snapshot?.selectedThreadId;if(id!=null)viewModel.openChat(id);chatOpen=true}
     var controlsOpen by remember{mutableStateOf(false)}
+    LaunchedEffect(liveCall.phase){if(liveCall.phase==LivePhase.OFFERED){chatOpen=false;controlsOpen=false;viewModel.hideChat()}}
     val openControls={val id=conversationState.selection?.threadId?:dashboard.remote?.snapshot?.selectedThreadId?:dashboard.remote?.snapshot?.threads?.firstOrNull()?.id;if(id!=null){viewModel.openControls(id);controlsOpen=true}}
     val context = LocalContext.current
     var pendingEnable by remember { mutableStateOf(false) }

@@ -6,9 +6,6 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
-import androidx.core.app.NotificationCompat
-import com.codexvoice.app.MainActivity
-import com.codexvoice.app.R
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collect
 import com.codexvoice.app.core.speech.*
@@ -23,7 +20,6 @@ class CallAudioService : Service() {
         const val CONNECT = "com.codexvoice.app.audio.CONNECT"; const val END = "com.codexvoice.app.audio.END"
         const val MUTE = "com.codexvoice.app.audio.MUTE"; const val SPEAKER = "com.codexvoice.app.audio.SPEAKER"; const val TONE = "com.codexvoice.app.audio.TONE"
         const val SPEAK = "com.codexvoice.app.audio.SPEAK"; const val STOP_SPEECH = "com.codexvoice.app.audio.STOP_SPEECH"
-        private const val NOTIFICATION = 606
     }
     private var engine: NativeAudioEngine? = null
     private var synthesizer: AndroidTtsEngine? = null
@@ -82,14 +78,8 @@ class CallAudioService : Service() {
         return START_NOT_STICKY
     }
     private fun ongoing() {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel("codex_audio_session", "Active audio session", NotificationManager.IMPORTANCE_LOW).apply { setSound(null, null); enableVibration(false) })
-        val open = PendingIntent.getActivity(this, 606, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val end = PendingIntent.getService(this, 607, Intent(this, CallAudioService::class.java).setAction(END), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val notification = NotificationCompat.Builder(this, "codex_audio_session").setSmallIcon(R.drawable.ic_launcher)
-            .setContentTitle("Codex Voice · Audio session").setContentText("Private audio · Local speech only")
-            .setContentIntent(open).setOngoing(true).setCategory(NotificationCompat.CATEGORY_SERVICE).addAction(0, "End call", end).build()
-        startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        startForeground(CallNotifications.ID, CallNotifications.ongoing(this,end), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
     }
     private fun ended(reason: String, recoverable: Boolean) {
         synthesizer?.close(); synthesizer=null; SpeechRuntime.clear()

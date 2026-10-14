@@ -60,6 +60,7 @@ class VoipCallService:Service(){
             }
         }}
         scope.launch{com.codexvoice.app.core.conversation.ConversationRuntime.state.collect{if(TelecomRuntime.callId.isNotBlank())ongoing(CallRuntime.state.value.phase==LivePhase.OFFERED)}}
+        scope.launch{CallNotifications.visible.collect{ongoing(event!=null&&!answered&&CallRuntime.state.value.phase !in setOf(LivePhase.ACTIVE,LivePhase.RECONNECTING,LivePhase.ENDED,LivePhase.DECLINED,LivePhase.EXPIRED,LivePhase.FAILED))}}
         scope.launch{delay(1800000);runtime?.calls?.end();stopSelf()}
         return START_NOT_STICKY
     }
@@ -85,18 +86,22 @@ class VoipCallService:Service(){
         val notifications=getSystemService(NotificationManager::class.java)
         notifications.createNotificationChannel(NotificationChannel("codex_voip_calls","Codex Voice calls",NotificationManager.IMPORTANCE_HIGH).apply{setSound(null,null);enableVibration(PushStore.get(this@VoipCallService).state.value.preferences.vibration);lockscreenVisibility=Notification.VISIBILITY_PUBLIC})
         val end=PendingIntent.getService(this,710,Intent(this,VoipCallService::class.java).setAction(END),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val open=event?.let{TelecomRuntime.incomingIntent(this,it.eventId,false)}?:PendingIntent.getActivity(this,711,Intent(this,MainActivity::class.java),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val selection=com.codexvoice.app.core.conversation.ConversationRuntime.state.value.selection
         val thread=runtime?.client?.state?.value?.snapshot?.threads?.find{it.id==(selection?.threadId?:CallRuntime.state.value.offer?.threadId)}
         val identity=selection?.let{"${it.project} · ${it.label}"}?:thread?.let{"${it.project} · ${it.label}"}?:"Codex Voice"
-        val builder=NotificationCompat.Builder(this,"codex_voip_calls").setSmallIcon(R.drawable.ic_launcher).setContentTitle(identity).setContentText(if(incoming)"Incoming private call" else "Private call in progress")
-            .setContentIntent(open).setCategory(NotificationCompat.CATEGORY_CALL).setOngoing(true).setOnlyAlertOnce(true).setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+        if(!incoming){startForeground(CallNotifications.ID,CallNotifications.ongoing(this,end,identity),ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL);return}
+        val open=event?.let{TelecomRuntime.incomingIntent(this,it.eventId,false)}?:PendingIntent.getActivity(this,711,Intent(this,MainActivity::class.java),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val inApp=CallNotifications.visible.value
+        if(inApp)CallNotifications.quietChannel(this)
+        val builder=NotificationCompat.Builder(this,if(inApp)CallNotifications.QUIET_CHANNEL else "codex_voip_calls").setSmallIcon(R.drawable.ic_launcher).setContentTitle(identity).setContentText("Incoming private call")
+            .setContentIntent(open).setCategory(NotificationCompat.CATEGORY_CALL).setOngoing(true).setOnlyAlertOnce(true).setVisibility(NotificationCompat.VISIBILITY_PUBLIC).setSilent(inApp)
+            .setPriority(if(inApp)NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
         val person=Person.Builder().setName(identity).setImportant(true).build()
         if(incoming&&event!=null){val answer=TelecomRuntime.incomingIntent(this,event!!.eventId,true);builder.setStyle(NotificationCompat.CallStyle.forIncomingCall(person,end,answer))
-            if(Build.VERSION.SDK_INT<34||notifications.canUseFullScreenIntent())builder.setFullScreenIntent(open,true)
+            if(!inApp&&(Build.VERSION.SDK_INT<34||notifications.canUseFullScreenIntent()))builder.setFullScreenIntent(open,true)
             builder.setTimeoutAfter((event!!.expires-System.currentTimeMillis()).coerceIn(1,120000))
         }else builder.setStyle(NotificationCompat.CallStyle.forOngoingCall(person,end))
-        startForeground(707,builder.build(),ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL)
+        startForeground(CallNotifications.ID,builder.build(),ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL)
     }
     override fun onDestroy(){event?.let{RecentCalls.record(this,it.eventId,if(answered)"Answered" else if(CallRuntime.state.value.phase==LivePhase.DECLINED)"Declined" else "Missed")};ringer?.close();scope.cancel();TelecomRuntime.clear();runtime?.releaseInvitation();runtime=null;stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy()}
 }

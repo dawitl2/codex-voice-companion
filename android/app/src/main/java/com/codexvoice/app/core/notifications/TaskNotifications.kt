@@ -28,6 +28,7 @@ object TaskNotifications {
         return Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName).putExtra(Settings.EXTRA_CHANNEL_ID, channel.id)
     }
     fun post(context: Context, event: PushEvent, preferences: PushPreferences): Boolean {
+        if(com.codexvoice.app.core.calls.CallRuntime.state.value.phase in setOf(com.codexvoice.app.core.calls.LivePhase.OFFERED,com.codexvoice.app.core.calls.LivePhase.CONNECTING,com.codexvoice.app.core.calls.LivePhase.ACTIVE,com.codexvoice.app.core.calls.LivePhase.RECONNECTING))return false
         if (!permission(context)) return false
         val manager = context.getSystemService(NotificationManager::class.java)
         val family = family(event); val group = "codex_$family"
