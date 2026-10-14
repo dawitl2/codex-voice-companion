@@ -6,7 +6,7 @@ import { ThreadManager } from './ThreadManager.js';
 import { TurnManager } from './TurnManager.js';
 import { ApprovalManager } from './ApprovalManager.js';
 import { EventNormalizer } from './EventNormalizer.js';
-import { object, sanitize, terminal } from '../utils/safe.js';
+import { identifier, object, sanitize, terminal } from '../utils/safe.js';
 import type { Sandbox } from '../config/settings.js';
 
 export class Bridge {
@@ -14,6 +14,7 @@ export class Bridge {
   readonly threads: ThreadManager; readonly turns: TurnManager; readonly approvals: ApprovalManager;
   authentication = 'Unverified'; plan: string | undefined; private closed = false;
   ownershipGuard:((thread:ManagedThread)=>Promise<void>)|undefined;
+  observedSelectionChanged:((id:string)=>void)|undefined;
   private verifiedConnection = false;
   get available(): boolean { return this.client.ready && this.verifiedConnection && !this.closed; }
   private readonly transport: RpcTransport;
@@ -63,6 +64,7 @@ export class Bridge {
   }
   async select(id: string): Promise<void> {
     await this.verifyAccount();
+    if(this.threads.get(id).observed){this.threads.activeId=id;this.threads.remember(id);this.observedSelectionChanged?.(id);return;}
     const selected=this.threads.get(id);if(selected.original){if(!this.ownershipGuard)throw Error('Stored session handoff is unavailable');await this.ownershipGuard(selected);}
     await this.verifyConfiguration(this.threads.get(id).cwd);
     if (!this.threads.loaded.has(id)) {
@@ -75,6 +77,23 @@ export class Bridge {
     this.threads.get(id).observed=false;this.store.save();
   }
   async send(id: string, text: string, beforeDispatch?: () => void): Promise<string> { const thread=this.threads.get(id);if(thread.original){if(!this.ownershipGuard)throw Error('Stored session handoff is unavailable');await this.ownershipGuard(thread);}await this.verifyAccount(); await this.verifyConfiguration(thread.cwd);const turn=(await this.turns.start(id, text, beforeDispatch)).id;this.threads.remember(id);return turn; }
+  /** Queue real user input for the owning Codex client; never resume its session here.
+   * 0.160.0 shares the queue across local servers. The desktop consumes it when idle.
+   * A queue receipt is not evidence that a user-message item has appeared yet. */
+  async submit(id:string,text:string,submissionId:string,beforeDispatch:()=>void):Promise<{turnId:string|null;queued:boolean}> {
+    const thread=this.threads.get(id);
+    if(!thread.observed)return {turnId:await this.send(id,text,beforeDispatch),queued:false};
+    identifier(submissionId);
+    if(!text.trim()||text.length>2000)throw Error('Invalid instruction');
+    await this.verifyAccount();await this.verifyConfiguration(thread.cwd);
+    beforeDispatch();
+    const response=object(await this.client.request('thread/queue/add',{threadId:id,input:[{type:'text',text}],clientUserMessageId:submissionId}));
+    const receipt=object(response.queuedSubmission);
+    identifier(receipt.id);
+    if(receipt.clientUserMessageId!==submissionId)throw Error('Unmatched Codex queue receipt');
+    this.threads.remember(id);
+    return {turnId:null,queued:true};
+  }
   async verifyConfiguration(cwd?: string): Promise<void> {
     if (this.mode === 'mock') return;
     const config = object(object(await this.client.request('config/read', { includeLayers: false, ...(cwd ? { cwd } : {}) })).config);

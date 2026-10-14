@@ -1,5 +1,6 @@
 import type { RegistryStorage } from '../remote/DeviceRegistry.js';
-export const SUBMISSION_STATES=['submitting','accepted','running','awaitingApproval','completed','failed','interrupted','unknown','rejected'] as const;
+import type { ManagedTurn } from '../types/index.js';
+export const SUBMISSION_STATES=['submitting','queued','accepted','running','awaitingApproval','completed','failed','interrupted','unknown','rejected'] as const;
 export type SubmissionState=typeof SUBMISSION_STATES[number];
 export interface Submission {
   id:string; deviceId:string; callId:string; threadId:string; turnId:string|null;
@@ -27,7 +28,16 @@ export class SubmissionLedger {
   }
   get(id:string) { return this.rows.find(r=>r.id===id); }
   list() { return structuredClone(this.rows); }
-  uncertain(threadId:string) { return this.rows.some(r=>r.threadId===threadId && ['submitting','unknown'].includes(r.state)); }
+  uncertain(threadId:string) { return this.rows.some(r=>r.threadId===threadId && ['submitting','queued','unknown'].includes(r.state)); }
+  /** Only the original client's persisted user-message client ID proves delivery. */
+  reconcile(turns:readonly ManagedTurn[]) {
+    for(const row of this.list()) {
+      const turn=turns.find(t=>t.threadId===row.threadId&&(row.turnId?t.id===row.turnId:t.clientUserMessageId===row.id));
+      if(!turn)continue;
+      const state=turn.status==='starting'?'running':turn.status;
+      if(row.turnId!==turn.id||row.state!==state||row.finishedAt!==(turn.finishedAt??null))this.update(row.id,{turnId:turn.id,state,acceptedAt:row.acceptedAt??turn.startedAt,finishedAt:turn.finishedAt??null});
+    }
+  }
   add(row:Submission) {
     if(this.get(row.id)) throw new Error('duplicate_submission');
     const next=[...this.rows,row];

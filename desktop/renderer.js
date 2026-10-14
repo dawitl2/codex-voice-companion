@@ -17,7 +17,7 @@ function render(s) {
   $('events').innerHTML=(s.events||[]).slice(-6).reverse().map(e=>row(new Date(e.timestamp).toLocaleTimeString(),null,e.summary)).join('')||'<p>No recent activity.</p>';
   $('threads').innerHTML=(s.threads||[]).map(t=>`<button class="thread ${t.id===s.selectedThreadId?'chosen':''}" data-select="${esc(t.id)}">${esc(t.label)}<small><br>${esc(t.model)}</small></button>`).join('')||'<p>Create your first managed conversation.</p>';
   $('selection-diagnostic').textContent=s.selectionDiagnostic||'Start Companion to discover your stored Codex conversations.';
-  $('stored-threads').innerHTML=(s.storedConversations||[]).filter(t=>!s.threads?.some(m=>m.id===t.id)).slice(0,30).map(t=>`<div class="message"><strong>${esc(t.label)}</strong><small>${esc(t.project)} · ${esc(t.source)} · ${esc(t.updatedAt)}</small><p>${esc(t.reason||'Stored session. Close its original Codex client before handoff.')}</p><button data-resume="${esc(t.id)}" ${t.eligible?'':'disabled'}>Resume original conversation</button></div>`).join('');
+  $('stored-threads').innerHTML=(s.storedConversations||[]).filter(t=>!s.threads?.some(m=>m.id===t.id)).slice(0,30).map(t=>`<div class="message"><strong>${esc(t.label)}</strong><small>${esc(t.project)} · ${esc(t.source)} · ${esc(t.updatedAt)}</small><p>${esc(t.reason||'Phone instructions will appear in this original Codex chat.')}</p><button data-resume="${esc(t.id)}" ${t.eligible?'':'disabled'}>Use this conversation</button></div>`).join('');
   $('latest').disabled=!s.running||busy; $('discover').disabled=!s.running||busy;
   const t=s.threads?.find(t=>t.id===s.selectedThreadId), turns=(s.turns||[]).filter(x=>x.threadId===s.selectedThreadId);
   $('current-conversation').textContent=t?.label||'Ready when you are.';
@@ -25,7 +25,7 @@ function render(s) {
   $('chat-heading').textContent=t?.label||'Choose a conversation'; $('task-state').textContent=turns.at(-1)?.status||'Ready';
   $('open-original').disabled=!t;
   $('messages').innerHTML=turns.map(x=>`<div class="message"><small>You · ${esc(x.status)}</small>${esc(x.instruction||'Earlier instruction unavailable in local history')}</div><div class="message response"><small>Codex</small>${esc(x.finalResponse||'Waiting for the actual response…')}</div>`).join('');
-  $('send').disabled=!s.codexConnected||!t||busy||['running','starting','awaitingApproval','unknown'].includes(turns.at(-1)?.status);
+  $('send').disabled=!s.codexConnected||!t||busy||(!t.observed&&['running','starting','awaitingApproval','unknown'].includes(turns.at(-1)?.status));
   $('create').disabled=!s.codexConnected||busy; $('pair').disabled=!s.running||busy; $('interrupt').disabled=!s.codexConnected||!['running','starting','awaitingApproval'].includes(turns.at(-1)?.status);
   $('phones').innerHTML=(s.paired||[]).map(d=>`<div class="row"><div><strong>${esc(d.name)}</strong><p>${d.connected?'Authenticated · connected':'Paired · offline'} · ${d.registered?'Notifications registered':'Registration pending'}</p><small>Last connection ${d.lastConnectedAt?esc(new Date(d.lastConnectedAt).toLocaleString()):'not observed this run'}</small></div><button data-revoke="${esc(d.id)}">Revoke…</button></div>`).join('')||(s.running?'<p>No phone paired.</p>':'<p>Start Companion to load paired phones.</p>');
   $('operations').innerHTML=(s.operations||[]).map(o=>row(o.device+' · '+o.kind,null,o.state+(o.text?' · '+o.text:''))).join('')||'<p>No pending follow-up.</p>';
@@ -48,7 +48,7 @@ $('interrupt').onclick=()=>{if(confirm('Request interruption of this actual task
 $('pair').onclick=()=>perform(async()=>{const p=await action('pair');$('invitation').hidden=false;$('invitation').innerHTML=`<p>Enter this private address and one-time code in Android Settings → PC monitor.</p><code>${esc(p.endpoint)}</code><strong>${esc(p.code)}</strong><small>Expires ${esc(new Date(p.expiresAt).toLocaleTimeString())}. Never share this invitation.</small>`;setTimeout(()=>{$('invitation').textContent='Invitation expired. Request a fresh one.';},Math.max(0,Date.parse(p.expiresAt)-Date.now()));});
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;
   if(b.dataset.select)perform(()=>action('select',{threadId:b.dataset.select}));
-  if(b.dataset.resume&&confirm('Continue this exact original stored Codex conversation? Close its original Codex client first. Its project and supported sandbox are preserved; live session attachment is unavailable.'))perform(()=>action('resumeStored',{threadId:b.dataset.resume}));
+  if(b.dataset.resume)perform(()=>action('resumeStored',{threadId:b.dataset.resume}));
   if(b.dataset.revoke&&confirm('Revoke this phone pairing and end its active calls?'))perform(()=>action('revoke',{deviceId:b.dataset.revoke}));
   if(b.dataset.approve&&confirm('Approve this exact action once? Review the complete operation and scope above.'))perform(()=>action('decision',{approvalId:b.dataset.approve,accept:true}));
   if(b.dataset.deny)perform(()=>action('decision',{approvalId:b.dataset.deny,accept:false}));

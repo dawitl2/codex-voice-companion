@@ -24,14 +24,15 @@ class IncomingCallRinger(private val context: Context, private val expiresAt: Lo
         if (dismissed || playing || !soundEnabled || expiresAt <= now || (ringDeadline > 0 && now >= ringDeadline)) return
         val audio = context.getSystemService(AudioManager::class.java)
         val notifications = context.getSystemService(NotificationManager::class.java)
+        val channel = notifications.getNotificationChannel("codex_voip_calls")
+        val groupBlocked = channel?.group?.let { notifications.getNotificationChannelGroup(it)?.isBlocked } == true
         if (!TaskNotifications.permission(context) || audio.ringerMode != AudioManager.RINGER_MODE_NORMAL || notifications.currentInterruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL ||
-            notifications.notificationChannels.any { it.id.startsWith("codex_") && it.importance == NotificationManager.IMPORTANCE_NONE } ||
-            notifications.notificationChannelGroups.any { it.id.startsWith("codex_") && it.isBlocked }) return
+            channel?.importance == NotificationManager.IMPORTANCE_NONE || groupBlocked) return
         try {
             val uri = RingtoneManager.getActualDefaultRingtoneUri(context, RingtoneManager.TYPE_RINGTONE) ?: return
             ringtone = RingtoneManager.getRingtone(context, uri)?.apply {
                 audioAttributes = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
-                volume = .35f; isLooping = true; play()
+                volume = 1f; isLooping = true; play()
             }
             if (ringDeadline == 0L) ringDeadline = minOf(expiresAt, now + 30000)
             handler.postDelayed(timeout, (ringDeadline - System.currentTimeMillis()).coerceAtLeast(1))

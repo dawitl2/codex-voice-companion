@@ -52,7 +52,7 @@ export class CompanionService {
     this.controls = new TaskControl(this.bridge, ledger, new WindowsRegistryStorage(directory, 'controls.dpapi'), id => this.registry.hasDevice(id));
     this.voice = new VoiceConversationController(this.bridge, this.calls, ledger, Date.now, this.controls);
     this.chat = new TextConversation(this.bridge, ledger);
-    this.recent=new StoredConversationResolver(this.bridge,options.assets,()=>this.transport.pid,()=>this.calls.diagnostics().some(c=>!['ended','declined','expired','failed'].includes(c.state)));
+    this.recent=new StoredConversationResolver(this.bridge,options.assets,()=>this.transport.pid,()=>this.calls.diagnostics().some(c=>!['ended','declined','expired','failed'].includes(c.state))||ledger.list().some(r=>r.state==='queued'));
     this.speech.onTranscription((c, u) => { void this.voice.transcription(c, u); });
     this.speech.onActivity((c,busy)=>this.voice.activity(c,busy));
     this.remote = new RemoteServer(this.bridge, this.registry, options.endpoint, 8787, 15000, 20000,
@@ -75,7 +75,7 @@ export class CompanionService {
   state(): Record<string, unknown> {
     const b = this.bridge, selected = b.threads.activeId;
     return { running: !this.stopped, codexConnected: b.available, authentication: b.authentication,
-      policy: selected?this.bridge.threads.policy(selected)+' (selected conversation; network disabled)':this.options.writable?'workspace-write (selected project only; network disabled)':'read-only', project: selected?b.threads.get(selected).cwd:this.options.project,
+      policy: selected?b.threads.get(selected).observed?'Original Codex client permissions and approvals':this.bridge.threads.policy(selected)+' (selected conversation; network disabled)':this.options.writable?'workspace-write (selected project only; network disabled)':'read-only', project: selected?b.threads.get(selected).cwd:this.options.project,
       storedConversations:this.recent.list(),selectionDiagnostic:this.recent.diagnostic,
       firebase: this.notifications.configured, firebaseDiagnostic: this.notifications.diagnostic, speech: this.speech.diagnostics(),
       paired: this.registry.list().map(d => ({ ...d, ...this.registry.pushState(d.id), ...this.remote.deviceState(d.id) })), connectedPhones: this.remote.connectedDevices,

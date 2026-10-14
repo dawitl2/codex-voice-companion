@@ -78,7 +78,7 @@ export class VoiceConversationController {
     const s=this.owner(deviceId,callId); if(s.phase==='submitting') throw new ConversationError('submission_in_progress');
     s.generation++; this.invalidate(s,'thread_changed'); const generation=s.generation;
     s.controlId=undefined;s.queueNext=false;
-    if(this.bridge.threads.get(threadId).observed)this.bridge.threads.activeId=threadId;else await this.bridge.select(threadId);
+    await this.bridge.select(threadId);
     if(this.owner(deviceId,callId)!==s || s.generation!==generation) throw new ConversationError('thread_changed');
     s.threadId=threadId; s.submissionId=null; s.phase='ready';s.error=''; const t=this.selected(s);
     this.add(s,'Selected '+sanitize(t.label,80)+' in '+sanitize(basename(t.cwd),80)+'.');
@@ -102,7 +102,7 @@ export class VoiceConversationController {
     if(!this.bridge.available) throw new ConversationError('codex_unavailable');
     const thread=this.selected(s);
     if(this.bridge.threads.activeId!==thread.id)throw new ConversationError('thread_changed');
-    if(this.bridge.turns.active(thread.id) || this.ledger.uncertain(thread.id)) {s.phase='busy';this.add(s,'Codex has active or uncertain work in this conversation. Ask for status or review it on the computer.');return;}
+    if((!thread.observed&&this.bridge.turns.active(thread.id)) || this.ledger.uncertain(thread.id)) {s.phase='busy';this.add(s,'An instruction is still pending in this conversation. Ask for status or review it on the computer.');return;}
     const p:BoundProposal={id:randomUUID(),text,threadId:thread.id,cwd:thread.cwd,model:thread.model,selected:this.bridge.threads.activeId??null,selectionVersion:this.bridge.threads.selectionVersion,generation:s.generation,project:sanitize(basename(thread.cwd),80),expiresAt:new Date(this.now()+45000).toISOString()};
     s.proposal=p;s.phase='awaiting_confirmation';s.error='';
     const review=/\b(?:delete|remove|erase|wipe|reset|credentials?|passwords?|tokens?|secrets?|permissions?|billing|sandbox|authentication|firewall|administrator|sudo|force[- ]?push|deploy)\b/i.test(text)||/^(?:do (?:that|it)|fix it|okay|sure)[.!? ]*$/i.test(text);
@@ -115,7 +115,7 @@ export class VoiceConversationController {
     if(duplicate) { if(duplicate.deviceId!==deviceId || duplicate.callId!==callId) throw new ConversationError('wrong_confirmation'); return this.status(deviceId,callId); }
     this.checkProposal(s); const p=s.proposal;
     if(!p || p.id!==confirmationId || !['awaiting_confirmation','countdown','dictating'].includes(s.phase)) throw new ConversationError('confirmation_unavailable');
-    if(!this.bridge.available || this.bridge.turns.active(p.threadId) || this.ledger.uncertain(p.threadId)) {this.invalidate(s,'thread_busy');throw new ConversationError('thread_busy');}
+    if(!this.bridge.available || (!this.bridge.threads.get(p.threadId).observed&&this.bridge.turns.active(p.threadId)) || this.ledger.uncertain(p.threadId)) {this.invalidate(s,'thread_busy');throw new ConversationError('thread_busy');}
     s.phase='submitting';s.proposal=null;
     s.continuation=undefined;s.inFlight={id:p.id,dispatched:false};
     try {
@@ -125,7 +125,7 @@ export class VoiceConversationController {
     let dispatched=false;const priorTurns=new Set(this.bridge.store.state.turns.filter(t=>t.threadId===p.threadId).map(t=>t.id));
     try {
       let expectedSelected=p.selected,expectedVersion=p.selectionVersion;
-      if(!this.bridge.threads.loaded.has(p.threadId)) {
+      if(!this.bridge.threads.get(p.threadId).observed&&!this.bridge.threads.loaded.has(p.threadId)) {
         await this.bridge.select(p.threadId);
         expectedSelected=p.threadId; expectedVersion=p.selectionVersion+(p.selected===p.threadId?0:1);
       }
@@ -136,9 +136,9 @@ export class VoiceConversationController {
         dispatched=true;
         if(s.inFlight)s.inFlight.dispatched=true;
       };
-      const turnId=await this.bridge.send(p.threadId,p.text,guard);
-      this.ledger.update(p.id,{turnId,state:'accepted',acceptedAt:new Date(this.now()).toISOString()});
-      if(this.sessions.get(callId)===s) {s.phase='running';s.error='';this.safeRefresh(s);}
+      const receipt=await this.bridge.submit(p.threadId,p.text,p.id,guard);
+      this.ledger.update(p.id,{turnId:receipt.turnId,state:receipt.queued?'queued':'accepted',acceptedAt:receipt.queued?null:new Date(this.now()).toISOString()});
+      if(this.sessions.get(callId)===s) {s.phase=receipt.queued?'queued':'running';s.error='';if(receipt.queued)this.add(s,'Queued in '+sanitize(this.selected(s).label,80)+'. Waiting for Codex to display your message and begin.');this.safeRefresh(s);}
     } catch(error) {
       const newTurnObserved=this.bridge.store.state.turns.some(t=>t.threadId===p.threadId && !priorTurns.has(t.id));
       const uncertain=dispatched && (!(error instanceof AppServerRejection) || newTurnObserved);
@@ -193,11 +193,6 @@ export class VoiceConversationController {
       else {
         if(s.queueNext&&this.controls){s.queueNext=false;const turn=this.bridge.turns.active(s.threadId);if(!turn)throw new ConversationError('thread_not_busy');const op=this.controls.propose(s.deviceId,s.threadId,turn.id,'queue',u.text);s.controlId=op.id;this.add(s,'Queue '+u.text+' after successful completion in '+op.cwd+'? Say yes to authorize one automatic follow-up, or cancel.');}
         else {
-          const target=this.selected(s);
-          if(target.observed&&!this.bridge.turns.active(target.id)){
-            try{await this.bridge.select(target.id);}
-            catch{s.phase='rejected';s.error='original_client_active';this.add(s,'This exact chat is still owned by the original Codex client. Your instruction has not been sent. Release the idle chat in that client before trying again. I will not send it to a different conversation.');return;}
-          }
           const text=s.continuation?s.continuation+' '+u.text:u.text;s.continuation=undefined;if(s.controlId&&this.controls){this.controls.cancel(s.deviceId,s.threadId,s.controlId);s.controlId=undefined;}if(s.proposal) this.invalidate(s,'proposal_replaced');this.propose(s,text);
         }
       }
@@ -221,7 +216,7 @@ export class VoiceConversationController {
     const state=turn.status==='starting'?'running':turn.status as SubmissionState;
     const firstOutputAt=row.firstOutputAt ?? (this.bridge.store.state.events.some(e=>e.threadId===row.threadId && e.turnId===row.turnId && e.type==='turn.progress')?new Date(this.now()).toISOString():null);
     if(row.state!==state || firstOutputAt!==row.firstOutputAt) this.ledger.update(row.id,{state,firstOutputAt,finishedAt:turn.finishedAt??null});
-    if(!s.proposal && (row.state!==state || ['accepted','running','awaitingApproval','unknown'].includes(s.phase))) s.phase=state;
+    if(!s.proposal && (row.state!==state || ['queued','accepted','running','awaitingApproval','unknown'].includes(s.phase))) s.phase=state;
     if(terminal(turn.status) && !s.terminalSpoken.has(turn.id)) {
       s.terminalSpoken.add(turn.id); if(!s.proposal)s.phase=state; const thread=this.bridge.threads.get(turn.threadId);
       this.add(s,sanitize(turn.finalResponse || 'No final response was provided.',16000),turn.finalResponse?'codex':'system',spokenResponse(thread,turn));
@@ -230,6 +225,7 @@ export class VoiceConversationController {
   private safeRefresh(s:Session) {try {this.refresh(s);} catch {s.error='submission_storage_unavailable';}}
   private reconcileLedger() {
     try {
+      this.ledger.reconcile(this.bridge.store.state.turns);
       for(const row of this.ledger.list()) {
         if(!row.turnId) continue; const turn=this.bridge.turns.get(row.threadId,row.turnId);if(!turn)continue;
         const state=turn.status==='starting'?'running':turn.status as SubmissionState;

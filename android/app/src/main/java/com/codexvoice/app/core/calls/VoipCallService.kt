@@ -46,7 +46,7 @@ class VoipCallService:Service(){
                     TaskNotifications.cancel(this@VoipCallService,id)
                     val prefs=PushStore.get(this@VoipCallService).state.value.preferences
                     ringer=IncomingCallRinger(this@VoipCallService,offer.expiresAt).also{it.start(prefs.sound)}
-                    scope.launch{delay((offer.expiresAt-System.currentTimeMillis()).coerceAtLeast(1));if(CallRuntime.state.value.phase==LivePhase.OFFERED){runtime?.calls?.decline();CallRuntime.update{it.copy(phase=LivePhase.EXPIRED)};stopSelf()}}
+                    scope.launch{delay((offer.expiresAt-System.currentTimeMillis()).coerceIn(1,30000));if(CallRuntime.state.value.phase==LivePhase.OFFERED){runtime?.calls?.decline();CallRuntime.update{it.copy(phase=LivePhase.EXPIRED)};stopSelf()}}
                     add(offer,true)
                 }
             }else if(intent?.action==OUTGOING){val offer=CallRuntime.state.value.offer?:error("no_call");require(offer.callId==intent.getStringExtra("call_id"));ongoing(false);scope.launch{add(offer,false)}}

@@ -10,8 +10,9 @@ export interface CallSession {
   kind: NotificationEvent['kind'] | 'review' | 'conversation'; mode: 'mock' | 'real'; createdAt: string; expiresAt: string;
   acceptedAt: string | null; endedAt: string | null; state: CallState; muted: boolean; reason: string;
   approvalId?: string;
+  presentedAt?: string;
 }
-export type CallView = Omit<CallSession, 'deviceId' | 'approvalId'>;
+export type CallView = Omit<CallSession, 'deviceId' | 'approvalId' | 'presentedAt'>;
 export interface CallRegistry { hasDevice(id: string, identity?: string): boolean }
 export class CallError extends Error { constructor(readonly code: string) { super(code); } }
 interface Grant { callId: string; deviceId: string; identity: string; token: string; expires: number }
@@ -58,7 +59,7 @@ export class CallSessionManager {
   }
   onChange(listener: (call: CallSession) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private notify(call: CallSession) { for (const listener of this.listeners) listener(structuredClone(call)); }
-  private view(call: CallSession): CallView { const { deviceId: _device, approvalId: _approval, ...view } = call; return structuredClone(view); }
+  private view(call: CallSession): CallView { const { deviceId: _device, approvalId: _approval, presentedAt: _presented, ...view } = call; return structuredClone(view); }
   preferences(deviceId: string): boolean { if (!this.registry.hasDevice(deviceId)) throw new CallError('revoked'); return this.enabled[deviceId] === true; }
   setPreferences(deviceId: string, enabled: boolean) {
     this.preferences(deviceId); this.enabled[deviceId] = enabled; this.save();
@@ -72,18 +73,25 @@ export class CallSessionManager {
     if (Date.parse(event.expiresAt) <= this.now() || this.now() - Date.parse(event.occurredAt) > 60000 ||
         this.sessions.some(c => c.deviceId === deviceId && !TERMINAL.has(c.state))) return null;
     const call: CallSession = { callId: randomUUID(), deviceId, eventId: event.eventId, threadId: event.threadId, turnId: event.turnId,
-      kind: event.kind, mode: event.mode, createdAt: this.iso(), expiresAt: new Date(Math.min(this.now() + 120000, Date.parse(event.expiresAt))).toISOString(),
+      // FCM may deliver after several minutes. The invitation must survive for
+      // the same authenticated event TTL, then ring briefly when presented.
+      kind: event.kind, mode: event.mode, createdAt: this.iso(), expiresAt: event.expiresAt,
       acceptedAt: null, endedAt: null, state: 'offered', muted: false, reason: 'task_event', ...(event.approvalId ? { approvalId: event.approvalId } : {}) };
     this.sessions.push(call); while (this.sessions.length > 200) this.sessions.splice(this.sessions.findIndex(c => TERMINAL.has(c.state)), 1);
     this.save(); this.notify(call); return this.view(call);
   }
   byEvent(deviceId: string, eventId: string): CallView | null {
     this.sweep(); this.preferences(deviceId);
-    const call = this.sessions.find(c => c.deviceId === deviceId && c.eventId === eventId); return call ? this.view(call) : null;
+    const call = this.sessions.find(c => c.deviceId === deviceId && c.eventId === eventId); if(call)this.present(call);return call ? this.view(call) : null;
   }
   current(deviceId: string): CallView | null {
     this.sweep(); this.preferences(deviceId);
-    const call = this.sessions.find(c => c.deviceId === deviceId && !TERMINAL.has(c.state)); return call ? this.view(call) : null;
+    const call = this.sessions.find(c => c.deviceId === deviceId && !TERMINAL.has(c.state)); if(call)this.present(call);return call ? this.view(call) : null;
+  }
+  private present(call:CallSession) {
+    if(call.state!=='offered'||call.presentedAt)return;
+    call.presentedAt=this.iso();call.expiresAt=new Date(Math.min(Date.parse(call.expiresAt),this.now()+45000)).toISOString();
+    this.save();this.notify(call);
   }
   /** Explicit local-PC review of an existing stored turn; never a fabricated new completion event. */
   review(deviceId: string, threadId: string, turnId: string, mode: 'mock' | 'real'): CallView {

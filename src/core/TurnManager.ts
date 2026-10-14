@@ -84,6 +84,7 @@ export class TurnManager {
   }
   private item(turn: ManagedTurn, item: Record<string, unknown>): void {
     const itemId = identifier(item.id);
+    if(item.type==='userMessage'&&typeof item.clientId==='string')turn.clientUserMessageId=identifier(item.clientId);
     if(item.type==='userMessage'&&Array.isArray(item.content))turn.instruction=sanitize(item.content.map(raw=>{const c=object(raw);return c.type==='text'&&typeof c.text==='string'?c.text:'';}).filter(Boolean).join('\n'),32000);
     if (item.type === 'agentMessage' && typeof item.text === 'string') {
       if (item.phase === 'commentary') { this.messages.get(turn.threadId + ':' + turn.id)?.delete(itemId); return; }
@@ -132,7 +133,9 @@ export class TurnManager {
       const startedAt = typeof t.startedAt === 'number' ? new Date(t.startedAt * 1000).toISOString() : this.get(threadId,id)?.startedAt??new Date().toISOString();
       let turn = this.get(threadId,id);
       if (!turn) { turn={id,threadId,startedAt,status:'running',finalResponse:'',commandResults:[],completionEmitted:true};this.store.state.turns.push(turn); }
-      turn.status = t.status === 'inProgress' ? 'running' : t.status as TurnStatus;
+      // An unfinished persisted rollout can be reported as interrupted by a
+      // separate reader. It is not a terminal result without completedAt.
+      turn.status = t.status === 'inProgress' || t.status==='interrupted'&&t.completedAt==null ? 'running' : t.status as TurnStatus;
       turn.startedAt=startedAt;
       if (typeof t.completedAt === 'number') turn.finishedAt=new Date(t.completedAt * 1000).toISOString();
       if (Array.isArray(t.items)) for (const item of t.items) this.item(turn,object(item));

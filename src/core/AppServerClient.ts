@@ -21,7 +21,9 @@ export class AppServerClient {
     this.buffer = '';
     try {
       await this.transport.start();
-      object(await this.request('initialize', { clientInfo: { name: 'codex_voice', title: 'Codex Voice', version: '0.1.0' }, capabilities: { experimentalApi: false } }));
+      // The pinned 0.160.0 user-message queue is an experimental protocol API.
+      // Opting into its schema does not change the original client's permissions.
+      object(await this.request('initialize', { clientInfo: { name: 'codex_voice', title: 'Codex Voice', version: '0.1.0' }, capabilities: { experimentalApi: true } }));
       this.notify('initialized', {}); this.ready = true;
     } catch (error) { this.disconnect('Initialization failed'); await this.transport.stop(); throw error; }
   }

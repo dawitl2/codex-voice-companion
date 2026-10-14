@@ -12,6 +12,7 @@ export interface ManagedThread {
   status: 'ready' | 'unavailable'; mode: Mode;
 }
 export interface ManagedTurn {
+  clientUserMessageId?: string;
   instruction?: string;
   id: string; threadId: string; startedAt: string; finishedAt?: string;
   status: TurnStatus; finalResponse: string; error?: string;

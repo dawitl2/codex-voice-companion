@@ -127,7 +127,7 @@ import kotlinx.coroutines.delay
                         else TextButton({if(speech.provisional!=null)onEditDictation();details=true}){Text(if(speech.provisional!=null) "Review" else "Conversation")}
                     }
                     Text(if(conversation.autoSend) "Auto-send · 3-second review" else "Manual review",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    if(conversation.phase in setOf("submitting","running","accepted","awaitingApproval","busy","unknown","rejected","completed","failed","cancelled")) Text(conversationLabel(conversation),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.primary)
+                    if(conversation.phase in setOf("submitting","queued","running","accepted","awaitingApproval","busy","unknown","rejected","completed","failed","cancelled")) Text(conversationLabel(conversation),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(if(compact) 16.dp else 28.dp))
                     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
                         CallControl(if(state.muted) "Unmute" else "Mute",if(state.muted)Icons.Default.MicOff else Icons.Default.Mic,onMute,

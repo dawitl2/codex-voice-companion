@@ -19,7 +19,7 @@ object ConversationWire {
     private fun date(p:JsonObject,key:String)=Instant.parse(string(p,key,40)).toEpochMilli()
     private fun nullableDate(p:JsonObject,key:String)=if(p[key].isJsonNull)null else date(p,key)
     private fun prose(p:JsonObject,key:String):String {val v=p[key].asJsonPrimitive;require(v.isString);return v.asString.also{require(it.isNotEmpty() && it.length<=16000 && it.none{c->c.code in 0..8 || c.code in 11..31 || c.code==127})}}
-    private val submissionStates=setOf("submitting","accepted","running","awaitingApproval","completed","failed","interrupted","unknown","rejected")
+    private val submissionStates=setOf("submitting","queued","accepted","running","awaitingApproval","completed","failed","interrupted","unknown","rejected")
     fun validate(type:String,p:JsonObject){
         if(type=="conversation.error"){keys(p,setOf("code"));require(string(p,"code",64).matches(Regex("[a-z_]+")));return}
         require(type=="conversation.status.response");parse(p)
@@ -38,6 +38,7 @@ object ConversationWire {
     }
 }
 fun conversationLabel(state:ConversationState)=when(state.phase){
+    "queued"->"Waiting in Codex chat"
     "countdown"->"Sending shortly";"dictating"->"Listening to more words"
     "awaiting_confirmation"->"Review instruction";"submitting"->"Sending instruction…";"running","accepted"->"Codex working";"awaitingApproval"->"Approval needed on PC"
     "completed"->"Turn completed";"failed"->"Turn failed";"interrupted"->"Turn interrupted";"unknown"->"Submission uncertain";"expired"->"Confirmation expired";"busy"->"Conversation busy";"rejected"->"Instruction not sent";else->"Ready for your next request"
