@@ -39,7 +39,7 @@ private val type = Typography(
     labelLarge = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp),
     labelSmall = TextStyle(fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp, letterSpacing = 0.7.sp))
 @Composable
-fun CodexVoiceTheme(mode: ThemeMode = ThemeMode.DARK, content: @Composable () -> Unit) {
+fun CodexVoiceTheme(mode: ThemeMode = ThemeMode.LIGHT, content: @Composable () -> Unit) {
     val useDark = mode == ThemeMode.DARK || (mode == ThemeMode.SYSTEM && isSystemInDarkTheme())
     MaterialTheme(colorScheme = if (useDark) dark else light, typography = type,
         shapes = Shapes(extraSmall = RoundedCornerShape(6.dp), small = RoundedCornerShape(8.dp), medium = RoundedCornerShape(12.dp), large = RoundedCornerShape(14.dp), extraLarge = RoundedCornerShape(18.dp)), content = content)

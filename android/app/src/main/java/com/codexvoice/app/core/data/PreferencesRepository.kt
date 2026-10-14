@@ -21,6 +21,7 @@ interface PreferencesRepository {
 
 class DataStorePreferencesRepository(private val store: DataStore<Preferences>) : PreferencesRepository {
     private val theme = stringPreferencesKey("theme")
+    private val lightDefaultApplied = booleanPreferencesKey("light_default_applied")
     private val completion = booleanPreferencesKey("completion")
     private val failure = booleanPreferencesKey("failure")
     private val approval = booleanPreferencesKey("approval")
@@ -38,13 +39,15 @@ class DataStorePreferencesRepository(private val store: DataStore<Preferences>) 
     private val autoSend = booleanPreferencesKey("auto_send_instructions")
     private val latestChatCalling = booleanPreferencesKey("latest_chat_calling_v2")
     override val preferences = store.data.onStart {
+        // Apply the requested light theme to the existing phone once; later choices persist.
+        store.edit { p -> if(p[lightDefaultApplied]!=true){p[theme]=ThemeMode.LIGHT.name;p[lightDefaultApplied]=true} }
         // The owner explicitly requested automatic incoming completion calls in this update.
         // This changes app preferences only; Android notification/microphone grants remain authoritative.
         store.edit { p -> if(p[latestChatCalling]!=true){p[enabled]=true;p[calls]=true;p[completion]=true;p[latestChatCalling]=true} }
     }.catch { error ->
         if (error is IOException) emit(emptyPreferences()) else throw error
     }.map { p -> UserPreferences(
-        ThemeMode.entries.firstOrNull { it.name == p[theme] } ?: ThemeMode.DARK,
+        ThemeMode.entries.firstOrNull { it.name == p[theme] } ?: ThemeMode.LIGHT,
         p[completion] ?: true, p[failure] ?: true, p[approval] ?: true, p[motion] ?: false,
         p[enabled] ?: false, p[interruption] ?: false, p[sound] ?: true, p[vibration] ?: true,
         p[calls] ?: false,

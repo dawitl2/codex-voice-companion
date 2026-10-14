@@ -2,7 +2,7 @@ package com.codexvoice.app.core.model
 
 enum class TaskStatus { RUNNING, COMPLETED, FAILED, INTERRUPTED, AWAITING_APPROVAL, UNKNOWN }
 enum class ConnectionStatus { DEMO, DISCONNECTED, CONNECTING, CONNECTED, ERROR }
-enum class ThemeMode { DARK, LIGHT, SYSTEM }
+enum class ThemeMode { LIGHT, DARK, SYSTEM }
 enum class CallReason { COMPLETION, FAILURE }
 data class Task(
     val id: String, val title: String, val project: String, val status: TaskStatus,
@@ -10,7 +10,7 @@ data class Task(
 )
 data class TaskEvent(val id: String, val task: Task)
 data class UserPreferences(
-    val theme: ThemeMode = ThemeMode.DARK,
+    val theme: ThemeMode = ThemeMode.LIGHT,
     val callOnCompletion: Boolean = true,
     val callOnFailure: Boolean = true,
     val callOnApproval: Boolean = true,
