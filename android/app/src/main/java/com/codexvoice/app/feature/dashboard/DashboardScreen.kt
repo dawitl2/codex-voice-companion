@@ -18,7 +18,7 @@ import com.codexvoice.app.core.remote.RemoteStatus
 import com.codexvoice.app.feature.settings.label
 
 @Composable
-fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallReason) -> Unit, onHistory: () -> Unit, onSettings: () -> Unit = {}, onOpenCall: () -> Unit = {},onControls:()->Unit={},onCallCodex:()->Unit={},onChat:()->Unit={},onSelect:(String)->Unit={},onConnect:()->Unit={}) {
+fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallReason) -> Unit, onHistory: () -> Unit, onSettings: () -> Unit = {}, onOpenCall: () -> Unit = {},onControls:()->Unit={},onCallCodex:()->Unit={},onChat:()->Unit={},onSelect:(String)->Unit={},onConnect:()->Unit={},onStopAll:()->Unit={}) {
     val context=androidx.compose.ui.platform.LocalContext.current
     val recentCalls=com.codexvoice.app.core.calls.RecentCalls.list(context)
     var choosing by remember { mutableStateOf(false) }
@@ -45,6 +45,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
                         state.remote?.snapshot?.let { Text("Last synchronized · ${formattedTime(it.syncedAt)}", style = MaterialTheme.typography.bodySmall) }
                         if (state.remote?.status != RemoteStatus.CONNECTED && state.remote?.snapshot != null) Text("Last known state · may be stale", color = MaterialTheme.colorScheme.error)
                         TextButton(onSettings) { Icon(Icons.Default.Settings,null,Modifier.size(20.dp));Spacer(Modifier.width(10.dp));Text("Connection settings");Spacer(Modifier.weight(1f));Icon(Icons.Default.ChevronRight,null) }
+                        if(state.remote?.enabled==true)TextButton(onStopAll,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.error)){Text("Stop all")}
                         HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant.copy(alpha=.4f))
                         val selected=state.remote?.snapshot?.threads?.find{it.id==state.remote.snapshot?.selectedThreadId}
                         Row(Modifier.fillMaxWidth().clickable { choosing=true },verticalAlignment=Alignment.CenterVertically) {

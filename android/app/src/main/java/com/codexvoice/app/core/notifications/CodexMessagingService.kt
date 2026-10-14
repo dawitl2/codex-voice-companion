@@ -28,7 +28,9 @@ class CodexMessagingService : FirebaseMessagingService() {
 object PushReceiver {
     fun receive(context: Context, data: Map<String, String>, allowVoip:Boolean=false) {
         val store = PushStore.get(context); val now = System.currentTimeMillis()
-        val event = PushParser.parse(data, KeystoreCredentialStore(context).load(), now) ?: run { PushDiagnostics.record(context, "envelope_rejected"); return }
+        val credential=KeystoreCredentialStore(context).load()
+        if(credential?.enabled!=true||!com.codexvoice.app.BackgroundCompanionService.enabled(context)){PushDiagnostics.record(context,"local_filtered");return}
+        val event = PushParser.parse(data, credential, now) ?: run { PushDiagnostics.record(context, "envelope_rejected"); return }
         if (!store.accept(event, now)) { PushDiagnostics.record(context, "local_filtered"); return }
         if(com.codexvoice.app.core.calls.CallRuntime.state.value.phase in setOf(com.codexvoice.app.core.calls.LivePhase.OFFERED,com.codexvoice.app.core.calls.LivePhase.CONNECTING,com.codexvoice.app.core.calls.LivePhase.ACTIVE,com.codexvoice.app.core.calls.LivePhase.RECONNECTING)){
             TaskNotifications.cancel(context,event.eventId);PushDiagnostics.record(context,"local_filtered");return

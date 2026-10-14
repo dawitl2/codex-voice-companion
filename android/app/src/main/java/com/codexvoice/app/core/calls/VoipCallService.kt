@@ -103,5 +103,5 @@ class VoipCallService:Service(){
         }else builder.setStyle(NotificationCompat.CallStyle.forOngoingCall(person,end))
         startForeground(CallNotifications.ID,builder.build(),ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL)
     }
-    override fun onDestroy(){event?.let{RecentCalls.record(this,it.eventId,if(answered)"Answered" else if(CallRuntime.state.value.phase==LivePhase.DECLINED)"Declined" else "Missed")};ringer?.close();scope.cancel();TelecomRuntime.clear();runtime?.releaseInvitation();runtime=null;stopForeground(STOP_FOREGROUND_REMOVE);super.onDestroy()}
+    override fun onDestroy(){event?.let{RecentCalls.record(this,it.eventId,if(answered)"Answered" else if(CallRuntime.state.value.phase==LivePhase.DECLINED)"Declined" else "Missed")};ringer?.close();scope.cancel();TelecomRuntime.clear();runtime?.releaseInvitation();runtime=null;stopForeground(STOP_FOREGROUND_REMOVE);com.codexvoice.app.BackgroundCompanionService.refresh(this);super.onDestroy()}
 }

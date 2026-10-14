@@ -39,7 +39,8 @@ fun remoteCurrent(snapshot: RemoteSnapshot): Task? {
 }
 data class CompanionData(val current: Task?, val history: List<Task>, val connection: ConnectionStatus, val remote: ClientState, val demo: Boolean)
 class CompanionTaskRepository(private val client: RemoteClient, private val scope: CoroutineScope,
-    initialDemo: Boolean = false, private val saveDemo: (Boolean) -> Unit = {}, private val demo: TaskRepository = DemoTaskRepository()) : TaskRepository {
+    initialDemo: Boolean = false, private val saveDemo: (Boolean) -> Unit = {}, private val demo: TaskRepository = DemoTaskRepository(),
+    private val startCompanion:()->Unit={},private val stopCompanion:()->Unit={}) : TaskRepository {
     private val mutableDemo = MutableStateFlow(initialDemo); val isDemo = mutableDemo.asStateFlow()
     val remote = client.state
     val data = combine(isDemo, remote, demo.current, demo.history) { useDemo, state, sample, sampleHistory ->
@@ -55,12 +56,12 @@ class CompanionTaskRepository(private val client: RemoteClient, private val scop
     override val current = data.map { it.current }.stateIn(scope, SharingStarted.Eagerly, null)
     override val history = data.map { it.history }.stateIn(scope, SharingStarted.Eagerly, emptyList())
     override val connection = data.map { it.connection }.stateIn(scope, SharingStarted.Eagerly, if (initialDemo) ConnectionStatus.DEMO else ConnectionStatus.DISCONNECTED)
-    fun selectDemo(enabled: Boolean) { saveDemo(enabled); mutableDemo.value = enabled; if (enabled) client.disconnect() }
+    fun selectDemo(enabled: Boolean) { saveDemo(enabled); mutableDemo.value = enabled; if (enabled) {client.disconnect();stopCompanion()} }
     fun foreground(active: Boolean) = client.foreground(active && !isDemo.value)
-    fun pair(address: String, code: String) { if (!isDemo.value) client.pair(address, code) }
-    fun connect() { if (!isDemo.value) { client.foreground(true); client.connectLatest() } }
-    fun disconnect() = client.disconnect()
-    fun forget() = client.forget()
+    fun pair(address: String, code: String) { if (!isDemo.value) {startCompanion();client.pair(address, code)} }
+    fun connect() { if (!isDemo.value) { startCompanion();client.foreground(true); client.connectLatest() } }
+    fun disconnect() {client.disconnect();stopCompanion()}
+    fun forget() {client.forget();stopCompanion()}
     fun refresh() = client.refresh()
     fun close() { client.close(); scope.cancel() }
     override fun completeDemoTask(reason: CallReason): Task { check(isDemo.value) { "Demo mode required" }; return demo.completeDemoTask(reason) }

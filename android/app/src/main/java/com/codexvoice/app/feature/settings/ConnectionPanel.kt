@@ -57,9 +57,9 @@ fun ConnectionPanel(state: ClientState?, demo: Boolean, onDemo: (Boolean) -> Uni
         } else {
             Button(onConnect, enabled = !busy && state.status != RemoteStatus.CONNECTED, modifier = Modifier.fillMaxWidth()) { Text("Connect") }
         }
-        if (busy || state.paired || state.status == RemoteStatus.BRIDGE_UNAVAILABLE) OutlinedButton(onDisconnect, modifier = Modifier.fillMaxWidth()) { Text("Disconnect") }
+        if (busy || state.paired || state.status == RemoteStatus.BRIDGE_UNAVAILABLE) OutlinedButton(onDisconnect, modifier = Modifier.fillMaxWidth()) { Text("Stop all") }
         if (state.paired || state.status == RemoteStatus.STORAGE_ERROR) TextButton({ confirmForget = true }) { Text("Forget paired PC") }
-        Text("Monitoring pauses in the background", style = MaterialTheme.typography.bodySmall)
+        Text("Stays connected in the background until Stop all.", style = MaterialTheme.typography.bodySmall)
     }
     if (confirmForget) AlertDialog(onDismissRequest = { confirmForget = false }, title = { Text("Forget paired PC?") },
         text = { Text("This removes the phone’s saved credential. Revoke this device on the PC before pairing it again.") },

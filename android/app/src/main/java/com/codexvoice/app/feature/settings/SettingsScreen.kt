@@ -49,6 +49,8 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
                 Text("This device: Android ${android.os.Build.VERSION.RELEASE}", style = MaterialTheme.typography.bodyMedium)
             }
         }
+        item { Eyebrow("Background & calls") }
+        item { SettingsSurface { BackgroundCallSettings() } }
         item { Eyebrow("Task notifications") }
         item {
             SettingsSurface {

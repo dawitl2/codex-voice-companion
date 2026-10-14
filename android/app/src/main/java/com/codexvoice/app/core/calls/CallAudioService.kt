@@ -90,7 +90,8 @@ class CallAudioService : Service() {
         if (recoverable) recovery = scope.launch { delay(15000); if (engine == null) ended("Reconnection unavailable; call ended", false) }
         else { recovery?.cancel(); durationLimit?.cancel(); CallRuntime.update { it.copy(serviceRunning = false) }; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf() }
     }
-    override fun onTaskRemoved(rootIntent: Intent?) { engine?.end(); super.onTaskRemoved(rootIntent) }
+    // Removing the UI task does not end an explicitly answered foreground call.
+    // Hang up / Stop all remain the user's controls for ending capture.
     override fun onDestroy() {
         synthesizer?.close(); synthesizer=null; SpeechRuntime.clear()
         ConversationRuntime.clear()
@@ -99,6 +100,6 @@ class CallAudioService : Service() {
         CallRuntime.update { it.copy(serviceRunning = false, capturing = false, playing = false,
             phase = if (it.phase in setOf(LivePhase.CONNECTING, LivePhase.ACTIVE, LivePhase.RECONNECTING)) LivePhase.FAILED else it.phase,
             problem = if (it.phase in setOf(LivePhase.CONNECTING, LivePhase.ACTIVE, LivePhase.RECONNECTING)) "Audio service stopped" else it.problem) }
-        scope.cancel(); super.onDestroy()
+        scope.cancel();com.codexvoice.app.BackgroundCompanionService.refresh(this);super.onDestroy()
     }
 }

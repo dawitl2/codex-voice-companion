@@ -27,7 +27,8 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
     private var timeout: Job? = null; private var retry: Job? = null; private var heartbeat: Job? = null
     private var attempts = 0; private var foreground = false; private var desired = false; private var authenticated = false
     private var callActive = false
-    private val connectionOwned get() = foreground || callActive
+    private var background = false
+    private val connectionOwned get() = foreground || callActive || background
     private var invitation: String? = null; private var helloId: String? = null; private var authId: String? = null; private var snapshotId: String? = null
     private var sessionEpoch: String? = null
     private var latestOnConnect=false
@@ -56,9 +57,12 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
         if (callActive == active) return@post
         callActive = active; reconcileOwnership()
     }
+    /** Lease owned by the user-started foreground companion, independently of a call. */
+    fun backgroundCompanion(active:Boolean)=post{if(background!=active){background=active;reconcileOwnership()}}
+    fun networkAvailable()=post{if(desired&&connectionOwned&&!authenticated&&credential?.enabled==true){attempts=0;open()}}
     private fun reconcileOwnership() {
         if (!connectionOwned) { stopSocket(); if (credential != null) update(RemoteStatus.DISCONNECTED, "App paused; displayed history may be stale.") }
-        else if (socket == null && retry?.isActive != true && credential?.enabled == true) {
+        else if (socket == null && retry?.isActive != true && credential?.enabled == true && state.value.status !in setOf(RemoteStatus.AUTH_FAILED,RemoteStatus.STORAGE_ERROR,RemoteStatus.TLS_ERROR,RemoteStatus.PROTOCOL_INCOMPATIBLE)) {
             desired = true; attempts = 0; open()
         }
     }
@@ -221,7 +225,8 @@ class RemoteClient(private val scope: CoroutineScope, private val sockets: Socke
             desired = false; update(if (reason == "tls_failure") RemoteStatus.TLS_ERROR else RemoteStatus.PROTOCOL_INCOMPATIBLE, errorMessage(reason)); return
         }
         if (pairing) { desired = false; invitation = null; update(RemoteStatus.PAIR_FAILED, "Pairing connection failed. Check Tailscale and request a fresh PC invitation."); return }
-        val wait = reconnectDelay(attempts++, jitter())
+        val attempt=attempts;attempts=(attempts+1).coerceAtMost(6)
+        val wait = reconnectDelay(if(background)attempt.coerceAtMost(5)else attempt, jitter())
         if (!connectionOwned || wait == null) { desired = false; update(RemoteStatus.DISCONNECTED, "PC unreachable. Check Tailscale, then tap Connect."); return }
         update(RemoteStatus.RECONNECTING, "Connection lost; cached history may be stale.")
         retry = scope.launch { delay(wait); post { if (desired && connectionOwned) open() } }
