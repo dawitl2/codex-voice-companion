@@ -68,7 +68,7 @@ class NotificationController(private val context: Context, private val client: R
     }
     private fun initializeFirebase(enabled: Boolean) {
         try {
-            val app = FirebaseApp.getApps(context).firstOrNull() ?: FirebaseApp.initializeApp(context)
+            val app = LocalFirebaseConfiguration.initialize(context)
             if (app == null) { mutable.value = state.value.copy(status = "Firebase client configuration is missing", configured = false); return }
             val messaging = FirebaseMessaging.getInstance()
             messaging.isAutoInitEnabled = enabled

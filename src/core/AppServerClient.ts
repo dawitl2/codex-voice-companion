@@ -3,6 +3,9 @@ import { object } from '../utils/safe.js';
 
 export class AppServerRejection extends Error {}
 export class AppServerClient {
+  // Local thread/read responses include full original histories and can exceed 4 MiB.
+  // Keep a finite per-frame bound without confusing valid histories with bad JSON.
+  private readonly maxFrameBytes = 32 * 1024 * 1024;
   private sequence = 0;
   private buffer = '';
   private readonly pending = new Map<string | number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: NodeJS.Timeout }>();
@@ -45,14 +48,15 @@ export class AppServerClient {
     if (this.closed) return;
     // The transport decodes UTF-8 bytes once; avoid re-encoding split JS strings.
     this.buffer += data;
-    if (Buffer.byteLength(this.buffer) > 4 * 1024 * 1024) { this.fatal(); return; }
     let boundary: number;
     while ((boundary = this.buffer.indexOf('\n')) >= 0) {
+      if (Buffer.byteLength(this.buffer.slice(0, boundary)) > this.maxFrameBytes) { this.oversized(); return; }
       const line = this.buffer.slice(0, boundary).trim(); this.buffer = this.buffer.slice(boundary + 1);
       if (!line) continue;
       try { this.dispatch(object(JSON.parse(line))); }
       catch { this.fatal(); return; }
     }
+    if (Buffer.byteLength(this.buffer) > this.maxFrameBytes) this.oversized();
   }
   private dispatch(message: Record<string, unknown>): void {
     const id = message.id;
@@ -72,6 +76,7 @@ export class AppServerClient {
     else request.resolve(message.result);
   }
   private fatal(): void { this.disconnect('Malformed app-server protocol; connection closed'); void this.transport.stop().catch(() => {}); }
+  private oversized(): void { this.disconnect('Codex conversation exceeds the 32 MiB local response limit; open a smaller conversation in Codex and restart Companion'); void this.transport.stop().catch(() => {}); }
   private disconnect(reason: string): void {
     if (this.closed) return;
     this.closed = true; this.ready = false;

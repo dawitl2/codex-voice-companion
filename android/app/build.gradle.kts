@@ -14,8 +14,8 @@ android {
         applicationId = "com.codexvoice.app"
         minSdk = 31
         targetSdk = 35
-        versionCode = 12
-        versionName = "1.1.5"
+        versionCode = 13
+        versionName = "1.1.6"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }

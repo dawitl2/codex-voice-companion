@@ -4,7 +4,10 @@ Push-Location -LiteralPath $desktopRoot
 try {
     & .\scripts\run.ps1 build
     if ($LASTEXITCODE -ne 0) { throw 'Bridge build failed' }
-    $nodeExe = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
+    $nodeCandidates = @($env:CODEX_VOICE_NODE_PATH, (Get-Command node.exe -ErrorAction SilentlyContinue).Source,
+        "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe") | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
+    $nodeExe = $nodeCandidates | Where-Object { (& $_ --version) -match '^v24\.' } | Select-Object -First 1
+    if (-not $nodeExe) { throw 'Install Node 24 or set CODEX_VOICE_NODE_PATH' }
     if ((& $nodeExe --version) -notmatch '^v24\.') { throw 'Verified Node 24 required' }
     $stage = Join-Path $desktopRoot ('.cache\desktop-stage\' + [guid]::NewGuid().ToString())
     $backend = Join-Path $stage 'backend'
@@ -20,12 +23,12 @@ try {
     Copy-Item -LiteralPath .cache/speech/models/ggml-tiny.en.bin -Destination (Join-Path $backend '.cache\speech\models')
     Copy-Item -LiteralPath docs/licenses -Destination $backend -Recurse
     New-Item -ItemType Directory -Path (Join-Path $backend 'scripts') -Force|Out-Null
-    Copy-Item -LiteralPath scripts/session-owners.ps1 -Destination (Join-Path $backend 'scripts')
+    Copy-Item -LiteralPath scripts/session-owners.ps1,scripts/protect-firebase-credentials.ps1 -Destination (Join-Path $backend 'scripts')
     Copy-Item -LiteralPath package.json,package-lock.json -Destination $backend
     $npmCli = Join-Path (Split-Path (Get-Command npm.cmd).Source -Parent) 'node_modules/npm/bin/npm-cli.js'
     & $nodeExe $npmCli ci --prefix $backend --omit=dev --ignore-scripts --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw 'Production bridge dependency packaging failed' }
-    [IO.File]::WriteAllText((Join-Path $stage 'package.json'), '{"name":"codex-voice-desktop","productName":"Codex Voice","version":"1.1.2","main":"desktop/main.cjs","private":true}')
+    [IO.File]::WriteAllText((Join-Path $stage 'package.json'), '{"name":"codex-voice-desktop","productName":"Codex Voice","version":"1.1.6","main":"desktop/main.cjs","private":true}')
     # Original code mark drawn as an app asset, never a copied proprietary graphic.
     Add-Type -AssemblyName System.Drawing
     $bitmap = New-Object Drawing.Bitmap(256,256)
@@ -51,7 +54,7 @@ try {
     }
     $output = Join-Path $desktopRoot ('.runtime\desktop-builds\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
     New-Item -ItemType Directory -Path $output -Force | Out-Null
-    & $nodeExe node_modules/@electron/packager/bin/electron-packager.mjs $stage 'Codex Voice' --no-asar --platform=win32 --arch=x64 --electron-version=44.7.0 "--out=$output" "--icon=$iconPath" --app-version=1.1.2 --build-version=1.1.2 --win32metadata.CompanyName='Codex Voice' --win32metadata.FileDescription='Private desktop and Android voice companion'
+    & $nodeExe node_modules/@electron/packager/bin/electron-packager.mjs $stage 'Codex Voice' --no-asar --platform=win32 --arch=x64 --electron-version=44.7.0 "--out=$output" "--icon=$iconPath" --app-version=1.1.6 --build-version=1.1.6 --win32metadata.CompanyName='Codex Voice' --win32metadata.FileDescription='Private desktop and Android voice companion'
     if ($LASTEXITCODE -ne 0) { throw 'Packaged desktop build failed' }
     $executable = Join-Path $output 'Codex Voice-win32-x64\Codex Voice.exe'
     if (-not (Test-Path -LiteralPath $executable)) { throw 'Desktop EXE missing' }

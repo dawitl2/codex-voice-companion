@@ -54,6 +54,7 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
         item { Eyebrow("Task notifications") }
         item {
             SettingsSurface {
+                FirebaseClientSettings()
                 Text(notificationState.status, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(if (notificationState.pending) "PC settings: pending synchronization" else "PC settings: synchronized", style = MaterialTheme.typography.bodySmall)
                 PreferenceSwitch("Enable notifications", "Receive task alerts through Firebase while the app is closed.", p.notificationsEnabled) { onNotifications(p.copy(notificationsEnabled = it)) }
@@ -98,7 +99,7 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
         item {
             SettingsSurface {
                 Text("Codex Voice", style = MaterialTheme.typography.titleMedium)
-                Text("Version 0.7.0 · Experimental companion")
+                Text("Version 1.1.6 · Private companion")
             }
         }
     }

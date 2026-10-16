@@ -1,7 +1,8 @@
 # Installs only the bridge's pinned CLI in its ignored project cache. No global replacement/login.
 $ErrorActionPreference = 'Stop'
 $setupRoot = Split-Path $PSScriptRoot -Parent
-$setupNode = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
+$setupNode = (Get-Command node.exe -ErrorAction SilentlyContinue).Source
+if (-not $setupNode) { $setupNode = "$env:USERPROFILE\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe" }
 if ($env:CODEX_VOICE_NODE_PATH) { $setupNode = $env:CODEX_VOICE_NODE_PATH }
 if (-not (Test-Path -LiteralPath $setupNode) -or (& $setupNode --version) -notmatch '^v24\.') { throw 'Set CODEX_VOICE_NODE_PATH to Node 24' }
 $setupNpm = Join-Path (Split-Path (Get-Command npm.cmd).Source -Parent) 'node_modules\npm\bin\npm-cli.js'

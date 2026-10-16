@@ -21,7 +21,7 @@ function updateTray(){
 }
 async function quitCompletely(){if(await stop(true)===false)return;quitting=true;tray?.destroy();tray=undefined;window?.destroy();app.quit();}
 const permitted = new Map(Object.entries({ state: [], start: ['writable','notifications','sparkConfirmed'], stop: [], quit: [], project: [], create: ['label'], select: ['threadId'],
-  send: ['threadId','text'], interrupt: ['threadId'], pair: [], revoke: ['deviceId'], nominate: ['approvalId'], decision: ['approvalId','accept'], trust: ['deviceId','fingerprint'],discover:[],resumeStored:['threadId'],latest:[],openOriginal:['threadId'] }));
+  send: ['threadId','text'], interrupt: ['threadId'], pair: [], revoke: ['deviceId'], nominate: ['approvalId'], decision: ['approvalId','accept'], trust: ['deviceId','fingerprint'],credentials:[],discover:[],resumeStored:['threadId'],latest:[],openOriginal:['threadId'] }));
 function validAction(type, value) {
   const keys = permitted.get(type);
   if (!keys || !value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !keys.includes(k))) throw Error('Unsupported action');
@@ -48,7 +48,9 @@ async function start(payload) {
   save();
   const runConfig = { ...config, assets: backend, codex: path.join(backend, '.cache/codex-runtime/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe') };
   const runPath = path.join(path.dirname(settingsPath), 'active-config.json'); fs.writeFileSync(runPath, JSON.stringify(runConfig));
-  const node = app.isPackaged ? path.join(backend, 'node.exe') : path.join(process.env.USERPROFILE, '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe');
+  const node = app.isPackaged ? path.join(backend, 'node.exe') : process.env.CODEX_VOICE_NODE_PATH ||
+    (process.env.PATH || '').split(path.delimiter).map(folder => path.join(folder, 'node.exe')).find(file => fs.existsSync(file)) ||
+    path.join(app.getPath('home'), '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe');
   const script = path.join(backend, 'dist/src/desktop/worker.js');
   latest = { running: false, starting: true, project: config.project, error: '' };
   updateTray();
@@ -108,7 +110,7 @@ app.whenReady().then(() => {
   backend = app.isPackaged ? path.join(__dirname, '../backend') : path.join(__dirname, '..');
   settingsPath = path.join(app.getPath('home'), '.codex-voice/desktop/settings.json');
   config = fs.existsSync(settingsPath) ? JSON.parse(fs.readFileSync(settingsPath, 'utf8')) : {
-    project: app.getPath('documents'), writable: false, notifications: true, sparkConfirmed: false,
+    project: app.getPath('documents'), writable: false, notifications: false, sparkConfirmed: false,
     credentialPath: path.join(app.getPath('home'), '.codex-voice/firebase/service-account.json'), data: path.join(app.getPath('home'), '.codex-voice/desktop/data') };
   const rendererPath = path.join(__dirname, 'index.html');
   window = new BrowserWindow({ width: 1120, height: 800, minWidth: 820, minHeight: 640, title: 'Codex Voice',
@@ -122,12 +124,37 @@ app.whenReady().then(() => {
   ipcMain.handle('companion-action', async (event, type, payload = {}) => {
     if (event.sender !== window.webContents || event.senderFrame?.url !== pathToFileURL(rendererPath).href) throw Error('Untrusted caller');
     validAction(type, payload);
-    if (type === 'state') return { ...latest, configuration: { project: config.project, writable: config.writable, notifications: config.notifications, sparkConfirmed: config.sparkConfirmed } };
+    if (type === 'state') return { ...latest, configuration: { project: config.project, writable: config.writable, notifications: config.notifications, sparkConfirmed: config.sparkConfirmed, credentialConfigured: fs.existsSync(config.credentialPath) } };
     if (type === 'project') {
       if (worker) throw Error('Stop Companion before changing its project or execution policy');
       const { canceled, filePaths } = await dialog.showOpenDialog(window, { title: 'Choose an authorized Codex project', properties: ['openDirectory'] });
       if (!canceled && filePaths[0]) { config.project = fs.realpathSync(filePaths[0]); config.writable = false; save(); }
       return { project: config.project };
+    }
+    if (type === 'credentials') {
+      if (worker) throw Error('Stop Companion before changing notification setup');
+      const { canceled, filePaths } = await dialog.showOpenDialog(window, { title: 'Choose your Firebase service-account JSON', properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] });
+      if (!canceled && filePaths[0]) {
+        const candidate = fs.realpathSync(filePaths[0]);
+        const relative = path.relative(backend, candidate);
+        if (!relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) throw Error('Store credentials outside the application folder');
+        const account = JSON.parse(fs.readFileSync(candidate, 'utf8'));
+        if (account.type !== 'service_account' || typeof account.project_id !== 'string' || typeof account.private_key !== 'string') throw Error('Choose a Firebase service-account JSON, not the Android client file');
+        const directory = path.join(app.getPath('home'), '.codex-voice/firebase');
+        const protector = path.join(backend, 'scripts/protect-firebase-credentials.ps1');
+        const protect = () => new Promise((resolve, reject) => execFile(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe'),
+          ['-NoProfile', '-NonInteractive', '-File', protector, '-Directory', directory], { windowsHide: true, timeout: 15000 },
+          error => error ? reject(Error('Could not protect the local credential folder')) : resolve()));
+        await protect();
+        const destination = path.join(directory, 'service-account.json');
+        if (candidate !== destination) {
+          if (fs.existsSync(destination)) throw Error('A Firebase account is already configured. Remove the old local service-account file before importing a different one.');
+          fs.writeFileSync(destination, JSON.stringify(account), { flag: 'wx' });
+        }
+        await protect();
+        config.credentialPath = destination; save();
+      }
+      return { configured: fs.existsSync(config.credentialPath) };
     }
     if (type === 'start') return start(payload);
     if (type === 'stop') return { stopped: await stop(true) };

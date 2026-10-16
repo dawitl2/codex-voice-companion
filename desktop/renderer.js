@@ -1,14 +1,15 @@
 const $ = id => document.getElementById(id);
 const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let state = {}, initialized = false, tab = 'dashboard', busy = false;
-async function action(type, payload = {}) { $('error').textContent = ''; try { return await window.companion.action(type,payload); } catch(e) { $('error').textContent=e.message; throw e; } }
+async function action(type, payload = {}) { $('error').textContent = ''; try { return await window.companion.action(type,payload); } catch(e) { $('error').textContent=String(e.message).replace(/^Error invoking remote method '[^']+': Error: /,''); throw e; } }
 function row(label, yes, text) { return `<div class="row"><span>${esc(label)}</span><span class="${yes===null?'':yes?'good':'bad'}">${esc(text)}</span></div>`; }
 function render(s) {
   state = s; const cfg=s.configuration||{};
   if (!initialized) { $('writable').checked=cfg.writable===true; $('notifications').checked=cfg.notifications!==false; $('spark').checked=cfg.sparkConfirmed===true; initialized=true; }
   $('project').textContent=cfg.project||s.project||'Choose a project'; $('policy').textContent=s.policy?'Selected conversation: '+s.policy:'Stopped · project permissions apply at Start';
   $('footer-state').textContent=s.starting?'Starting…':s.running?'Companion running':'Stopped';
-  $('start').disabled=busy||s.running||s.starting; $('stop').disabled=busy||(!s.running&&!s.starting); $('choose-project').disabled=!!s.running||!!s.starting;
+  $('start').disabled=busy||s.running||s.starting; $('stop').disabled=busy||(!s.running&&!s.starting); $('choose-project').disabled=!!s.running||!!s.starting; $('choose-credentials').disabled=!!s.running||!!s.starting;
+  $('credential-status').textContent=cfg.credentialConfigured?'Firebase credentials selected on this PC':'Firebase notifications not configured';
   $('writable').disabled=!!s.running||!!s.starting; $('notifications').disabled=!!s.running||!!s.starting; $('spark').disabled=!!s.running||!!s.starting;
   $('health').innerHTML=row('Companion',s.running,s.running?'Running':'Stopped')+row('Codex',s.codexConnected,s.codexConnected?'Connected':'Disconnected')+
     row('Authentication',s.codexConnected,s.authentication||'Not checked')+row('Tailscale',s.tailscale,s.tailscale?'Available':'Not checked')+
@@ -39,6 +40,7 @@ async function refresh(){try{render(await window.companion.action('state'));}cat
 document.querySelector('nav').addEventListener('click',e=>{const button=e.target.closest('[data-tab]');if(!button)return;tab=button.dataset.tab;document.querySelectorAll('main>section').forEach(s=>s.hidden=s.id!==tab);document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('selected',b===button));$('heading').textContent=button.textContent;});
 $('start').onclick=()=>perform(()=>action('start',{writable:$('writable').checked,notifications:$('notifications').checked,sparkConfirmed:$('spark').checked}));
 $('stop').onclick=()=>perform(()=>action('stop')); $('quit').onclick=()=>action('quit').catch(()=>{});
+$('choose-credentials').onclick=()=>perform(()=>action('credentials'));
 $('choose-project').onclick=()=>perform(async()=>{await action('project');initialized=false;});
 $('create').onclick=()=>perform(async()=>{await action('create',{label:$('thread-label').value.trim()||'New conversation'});$('thread-label').value='';});
  $('discover').onclick=()=>perform(()=>action('discover'));$('latest').onclick=()=>perform(()=>action('latest'));
