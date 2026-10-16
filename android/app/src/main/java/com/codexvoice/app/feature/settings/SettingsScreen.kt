@@ -99,7 +99,7 @@ fun SettingsScreen(p: UserPreferences, onTheme: (ThemeMode) -> Unit,
         item {
             SettingsSurface {
                 Text("Codex Voice", style = MaterialTheme.typography.titleMedium)
-                Text("Version 1.1.6 · Private companion")
+                Text("Version 1.1.7 · Private companion")
             }
         }
     }

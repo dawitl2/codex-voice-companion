@@ -5,7 +5,15 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 let window, worker, latest = { running: false, error: '', connectedPhones: 0 }, nextId = 0, pending = new Map(), stopping;
 let config, settingsPath, backend;
-let tray, quitting=false, trayStatus='';
+let tray, quitting=false, trayStatus='', setupBusy=false;
+const setupChildren = new Set();
+const execute = (file, args, options = {}) => new Promise((resolve, reject) => {
+  const child = execFile(file, args, { shell: false, windowsHide: true, timeout: 15000, ...options }, (error, stdout, stderr) => error ? reject(error) : resolve({ stdout, stderr }));
+  setupChildren.add(child);
+  child.once('close', () => setupChildren.delete(child));
+});
+const tailscalePath = () => path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Tailscale/tailscale.exe');
+const codexPath = () => path.join(backend, '.cache/codex-runtime/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe');
 function restore(){window?.show();window?.restore();window?.focus();}
 function updateTray(){
   if(!tray)return;
@@ -19,9 +27,9 @@ function updateTray(){
     {type:'separator'},{label:'Quit Completely',click:()=>{void quitCompletely();}}
   ]));
 }
-async function quitCompletely(){if(await stop(true)===false)return;quitting=true;tray?.destroy();tray=undefined;window?.destroy();app.quit();}
+async function quitCompletely(){if(await stop(true)===false)return;for(const child of setupChildren)child.kill();quitting=true;tray?.destroy();tray=undefined;window?.destroy();app.quit();}
 const permitted = new Map(Object.entries({ state: [], start: ['writable','notifications','sparkConfirmed'], stop: [], quit: [], project: [], create: ['label'], select: ['threadId'],
-  send: ['threadId','text'], interrupt: ['threadId'], pair: [], revoke: ['deviceId'], nominate: ['approvalId'], decision: ['approvalId','accept'], trust: ['deviceId','fingerprint'],credentials:[],discover:[],resumeStored:['threadId'],latest:[],openOriginal:['threadId'] }));
+  send: ['threadId','text'], interrupt: ['threadId'], pair: [], revoke: ['deviceId'], nominate: ['approvalId'], decision: ['approvalId','accept'], trust: ['deviceId','fingerprint'],credentials:[],login:[],privateNetwork:[],openTailscale:[],discover:[],resumeStored:['threadId'],latest:[],openOriginal:['threadId'] }));
 function validAction(type, value) {
   const keys = permitted.get(type);
   if (!keys || !value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !keys.includes(k))) throw Error('Unsupported action');
@@ -41,12 +49,12 @@ function request(type, payload = {}) {
 }
 function save() { fs.mkdirSync(path.dirname(settingsPath), { recursive: true }); fs.writeFileSync(settingsPath, JSON.stringify(config)); }
 async function start(payload) {
-  if (worker) throw Error('Companion is already running or stopping');
+  if (worker || setupBusy) throw Error('Companion is already running or setup is in progress');
   config.writable = payload.writable === true; config.notifications = payload.notifications === true;
   config.sparkConfirmed = payload.sparkConfirmed === true;
   if (!fs.statSync(config.project).isDirectory()) throw Error('Choose an existing project folder');
   save();
-  const runConfig = { ...config, assets: backend, codex: path.join(backend, '.cache/codex-runtime/node_modules/@openai/codex-win32-x64/vendor/x86_64-pc-windows-msvc/bin/codex.exe') };
+  const runConfig = { ...config, assets: backend, codex: codexPath() };
   const runPath = path.join(path.dirname(settingsPath), 'active-config.json'); fs.writeFileSync(runPath, JSON.stringify(runConfig));
   const node = app.isPackaged ? path.join(backend, 'node.exe') : process.env.CODEX_VOICE_NODE_PATH ||
     (process.env.PATH || '').split(path.delimiter).map(folder => path.join(folder, 'node.exe')).find(file => fs.existsSync(file)) ||
@@ -124,21 +132,64 @@ app.whenReady().then(() => {
   ipcMain.handle('companion-action', async (event, type, payload = {}) => {
     if (event.sender !== window.webContents || event.senderFrame?.url !== pathToFileURL(rendererPath).href) throw Error('Untrusted caller');
     validAction(type, payload);
-    if (type === 'state') return { ...latest, configuration: { project: config.project, writable: config.writable, notifications: config.notifications, sparkConfirmed: config.sparkConfirmed, credentialConfigured: fs.existsSync(config.credentialPath) } };
+    if (type === 'state') return { ...latest, configuration: { project: config.project, writable: config.writable, notifications: config.notifications, sparkConfirmed: config.sparkConfirmed, credentialConfigured: fs.existsSync(config.credentialPath), setupBusy } };
     if (type === 'project') {
       if (worker) throw Error('Stop Companion before changing its project or execution policy');
       const { canceled, filePaths } = await dialog.showOpenDialog(window, { title: 'Choose an authorized Codex project', properties: ['openDirectory'] });
       if (!canceled && filePaths[0]) { config.project = fs.realpathSync(filePaths[0]); config.writable = false; save(); }
       return { project: config.project };
     }
+    if (type === 'openTailscale') {
+      const executable = path.join(path.dirname(tailscalePath()), 'tailscale-ipn.exe');
+      if (!fs.existsSync(executable)) { await shell.openExternal('https://tailscale.com/download/windows'); return {}; }
+      const error = await shell.openPath(executable);
+      if (error) throw Error('Could not open Tailscale. Open it from the Windows Start menu.');
+      return {};
+    }
+    if (type === 'login' || type === 'privateNetwork') {
+      if (worker || setupBusy) throw Error('Stop Companion before changing connection setup');
+      setupBusy = true;
+      try {
+        if (type === 'login') {
+          const { safeChildEnvironment } = await import(pathToFileURL(path.join(backend, 'dist/src/config/settings.js')).href);
+          const environment = safeChildEnvironment();
+          const status = await execute(codexPath(), ['login', 'status'], { env: environment }).catch(() => null);
+          if (status && /Logged in using ChatGPT/i.test(status.stdout + status.stderr)) return { message: 'Your existing ChatGPT login is ready.' };
+          await execute(codexPath(), ['login'], { env: environment, timeout: 180000 }).catch(() => { throw Error('Sign-in did not complete. Retry and finish the official browser sign-in.'); });
+          const verified = await execute(codexPath(), ['login', 'status'], { env: environment });
+          if (!/Logged in using ChatGPT/i.test(verified.stdout + verified.stderr)) throw Error('A ChatGPT login is required; API-key login is not supported.');
+          return { message: 'ChatGPT sign-in saved by Codex on this PC.' };
+        }
+        let tail, serve;
+        try {
+          tail = JSON.parse((await execute(tailscalePath(), ['status', '--json'])).stdout);
+          serve = JSON.parse((await execute(tailscalePath(), ['serve', 'status', '--json'])).stdout);
+        } catch { throw Error('Install Tailscale and sign in, then set up the private connection again.'); }
+        if (tail.BackendState !== 'Running' || !tail.Self?.DNSName) throw Error('Open Tailscale and sign in on this PC first.');
+        const dns = tail.Self.DNSName.replace(/\.$/, ''), host = dns + ':443';
+        const tcp = serve.TCP || {}, web = serve.Web || {}, funnel = serve.AllowFunnel || {};
+        const handlers = web[host]?.Handlers || {};
+        if (Object.keys(funnel).length) throw Error('Public Funnel is configured. Resolve it in Tailscale before using this private companion.');
+        const configured = Object.keys(tcp).length === 1 && tcp['443']?.HTTPS === true && Object.keys(web).length === 1 &&
+          Object.keys(handlers).length === 1 && handlers['/']?.Proxy === 'http://127.0.0.1:8787';
+        if (configured) return { message: 'Private connection is configured and retained by Tailscale.' };
+        if (Object.keys(tcp).length || Object.keys(web).length || Object.keys(serve.Services || {}).length) throw Error('This PC has other Tailscale Serve routes. They were left unchanged; use a dedicated node or resolve the conflict first.');
+        await execute(tailscalePath(), ['serve', '--bg', 'http://127.0.0.1:8787']).catch(() => { throw Error('Tailscale could not enable the private route. Review its Windows access settings and retry.'); });
+        return { message: 'Private HTTPS configured. Start Companion, then pair your phone.' };
+      } finally { setupBusy = false; }
+    }
     if (type === 'credentials') {
-      if (worker) throw Error('Stop Companion before changing notification setup');
+      if (worker || setupBusy) throw Error('Stop Companion and finish setup before changing notifications');
+      setupBusy = true;
+      try {
       const { canceled, filePaths } = await dialog.showOpenDialog(window, { title: 'Choose your Firebase service-account JSON', properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] });
       if (!canceled && filePaths[0]) {
         const candidate = fs.realpathSync(filePaths[0]);
         const relative = path.relative(backend, candidate);
         if (!relative.startsWith('..' + path.sep) && !path.isAbsolute(relative)) throw Error('Store credentials outside the application folder');
-        const account = JSON.parse(fs.readFileSync(candidate, 'utf8'));
+        if (fs.statSync(candidate).size > 65536) throw Error('Choose a service-account JSON smaller than 64 KB');
+        let account;
+        try { account = JSON.parse(fs.readFileSync(candidate, 'utf8')); } catch { throw Error('The selected file is not valid service-account JSON'); }
         if (account.type !== 'service_account' || typeof account.project_id !== 'string' || typeof account.private_key !== 'string') throw Error('Choose a Firebase service-account JSON, not the Android client file');
         const directory = path.join(app.getPath('home'), '.codex-voice/firebase');
         const protector = path.join(backend, 'scripts/protect-firebase-credentials.ps1');
@@ -147,14 +198,25 @@ app.whenReady().then(() => {
           error => error ? reject(Error('Could not protect the local credential folder')) : resolve()));
         await protect();
         const destination = path.join(directory, 'service-account.json');
-        if (candidate !== destination) {
-          if (fs.existsSync(destination)) throw Error('A Firebase account is already configured. Remove the old local service-account file before importing a different one.');
-          fs.writeFileSync(destination, JSON.stringify(account), { flag: 'wx' });
+        if (candidate.toLowerCase() !== destination.toLowerCase()) {
+          if (fs.existsSync(destination)) {
+            const { response } = await dialog.showMessageBox(window, { type: 'question', title: 'Replace notification account?', message: 'Replace the Firebase account saved on this PC? Your phone must use the matching Android client configuration.', buttons: ['Cancel', 'Replace account'], defaultId: 0, cancelId: 0 });
+            if (response !== 1) return { configured: true };
+          }
+          const staged = path.join(directory, 'service-account-import-' + require('node:crypto').randomUUID() + '.json');
+          let created = false;
+          try {
+            fs.writeFileSync(staged, JSON.stringify(account), { flag: 'wx' });
+            created = true;
+            await protect();
+            fs.renameSync(staged, destination);
+          } finally { if (created && fs.existsSync(staged)) fs.unlinkSync(staged); }
         }
         await protect();
         config.credentialPath = destination; save();
       }
       return { configured: fs.existsSync(config.credentialPath) };
+      } finally { setupBusy = false; }
     }
     if (type === 'start') return start(payload);
     if (type === 'stop') return { stopped: await stop(true) };

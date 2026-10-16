@@ -8,7 +8,8 @@ function render(s) {
   if (!initialized) { $('writable').checked=cfg.writable===true; $('notifications').checked=cfg.notifications!==false; $('spark').checked=cfg.sparkConfirmed===true; initialized=true; }
   $('project').textContent=cfg.project||s.project||'Choose a project'; $('policy').textContent=s.policy?'Selected conversation: '+s.policy:'Stopped · project permissions apply at Start';
   $('footer-state').textContent=s.starting?'Starting…':s.running?'Companion running':'Stopped';
-  $('start').disabled=busy||s.running||s.starting; $('stop').disabled=busy||(!s.running&&!s.starting); $('choose-project').disabled=!!s.running||!!s.starting; $('choose-credentials').disabled=!!s.running||!!s.starting;
+  $('start').disabled=busy||cfg.setupBusy||s.running||s.starting; $('stop').disabled=busy||(!s.running&&!s.starting); $('choose-project').disabled=busy||cfg.setupBusy||!!s.running||!!s.starting; $('choose-credentials').disabled=busy||cfg.setupBusy||!!s.running||!!s.starting;
+  $('codex-login').disabled=busy||cfg.setupBusy||s.running||s.starting; $('private-network').disabled=busy||cfg.setupBusy||s.running||s.starting;
   $('credential-status').textContent=cfg.credentialConfigured?'Firebase credentials selected on this PC':'Firebase notifications not configured';
   $('writable').disabled=!!s.running||!!s.starting; $('notifications').disabled=!!s.running||!!s.starting; $('spark').disabled=!!s.running||!!s.starting;
   $('health').innerHTML=row('Companion',s.running,s.running?'Running':'Stopped')+row('Codex',s.codexConnected,s.codexConnected?'Connected':'Disconnected')+
@@ -40,6 +41,9 @@ async function refresh(){try{render(await window.companion.action('state'));}cat
 document.querySelector('nav').addEventListener('click',e=>{const button=e.target.closest('[data-tab]');if(!button)return;tab=button.dataset.tab;document.querySelectorAll('main>section').forEach(s=>s.hidden=s.id!==tab);document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('selected',b===button));$('heading').textContent=button.textContent;});
 $('start').onclick=()=>perform(()=>action('start',{writable:$('writable').checked,notifications:$('notifications').checked,sparkConfirmed:$('spark').checked}));
 $('stop').onclick=()=>perform(()=>action('stop')); $('quit').onclick=()=>action('quit').catch(()=>{});
+$('codex-login').onclick=()=>perform(async()=>{$('setup-status').textContent='Finish sign-in in your browser if prompted…';const result=await action('login');$('setup-status').textContent=result.message;});
+$('open-tailscale').onclick=()=>perform(()=>action('openTailscale'));
+$('private-network').onclick=()=>perform(async()=>{const result=await action('privateNetwork');$('setup-status').textContent=result.message;});
 $('choose-credentials').onclick=()=>perform(()=>action('credentials'));
 $('choose-project').onclick=()=>perform(async()=>{await action('project');initialized=false;});
 $('create').onclick=()=>perform(async()=>{await action('create',{label:$('thread-label').value.trim()||'New conversation'});$('thread-label').value='';});

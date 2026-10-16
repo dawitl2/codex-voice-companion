@@ -5,8 +5,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
-// Client configuration stays local. Unconfigured builds retain honest pending setup UI.
-if (file("google-services.json").isFile) apply(plugin = "com.google.gms.google-services")
+// Every APK is generic. Users import Firebase client identifiers into private app storage.
 android {
     namespace = "com.codexvoice.app"
     compileSdk = 35
@@ -14,8 +13,8 @@ android {
         applicationId = "com.codexvoice.app"
         minSdk = 31
         targetSdk = 35
-        versionCode = 13
-        versionName = "1.1.6"
+        versionCode = 14
+        versionName = "1.1.7"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true }

@@ -12,6 +12,7 @@ try {
     $stage = Join-Path $desktopRoot ('.cache\desktop-stage\' + [guid]::NewGuid().ToString())
     $backend = Join-Path $stage 'backend'
     New-Item -ItemType Directory -Path $backend,(Join-Path $stage 'desktop'),(Join-Path $backend 'dist') -Force | Out-Null
+    Copy-Item -LiteralPath LICENSE -Destination $stage
     Copy-Item -LiteralPath desktop/main.cjs,desktop/preload.cjs,desktop/index.html,desktop/style.css,desktop/renderer.js -Destination (Join-Path $stage 'desktop')
     Copy-Item -LiteralPath dist/src -Destination (Join-Path $backend 'dist') -Recurse
     Copy-Item -LiteralPath $nodeExe -Destination (Join-Path $backend 'node.exe')
@@ -28,7 +29,7 @@ try {
     $npmCli = Join-Path (Split-Path (Get-Command npm.cmd).Source -Parent) 'node_modules/npm/bin/npm-cli.js'
     & $nodeExe $npmCli ci --prefix $backend --omit=dev --ignore-scripts --no-audit --no-fund
     if ($LASTEXITCODE -ne 0) { throw 'Production bridge dependency packaging failed' }
-    [IO.File]::WriteAllText((Join-Path $stage 'package.json'), '{"name":"codex-voice-desktop","productName":"Codex Voice","version":"1.1.6","main":"desktop/main.cjs","private":true}')
+    [IO.File]::WriteAllText((Join-Path $stage 'package.json'), '{"name":"codex-voice-desktop","productName":"Codex Voice","version":"1.1.7","main":"desktop/main.cjs","private":true}')
     # Original code mark drawn as an app asset, never a copied proprietary graphic.
     Add-Type -AssemblyName System.Drawing
     $bitmap = New-Object Drawing.Bitmap(256,256)
@@ -54,7 +55,7 @@ try {
     }
     $output = Join-Path $desktopRoot ('.runtime\desktop-builds\' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
     New-Item -ItemType Directory -Path $output -Force | Out-Null
-    & $nodeExe node_modules/@electron/packager/bin/electron-packager.mjs $stage 'Codex Voice' --no-asar --platform=win32 --arch=x64 --electron-version=44.7.0 "--out=$output" "--icon=$iconPath" --app-version=1.1.6 --build-version=1.1.6 --win32metadata.CompanyName='Codex Voice' --win32metadata.FileDescription='Private desktop and Android voice companion'
+    & $nodeExe node_modules/@electron/packager/bin/electron-packager.mjs $stage 'Codex Voice' --no-asar --platform=win32 --arch=x64 --electron-version=44.7.0 "--out=$output" "--icon=$iconPath" --app-version=1.1.7 --build-version=1.1.7 --win32metadata.CompanyName='Codex Voice' --win32metadata.FileDescription='Private desktop and Android voice companion'
     if ($LASTEXITCODE -ne 0) { throw 'Packaged desktop build failed' }
     $executable = Join-Path $output 'Codex Voice-win32-x64\Codex Voice.exe'
     if (-not (Test-Path -LiteralPath $executable)) { throw 'Desktop EXE missing' }
