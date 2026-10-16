@@ -1,0 +1,10 @@
+Historical private-development runner counters, transcribed from retained output.
+No test was run to create this publication file.
+
+tests 150
+pass 150
+fail 0
+cancelled 0
+skipped 0
+todo 0
+duration_ms 15638.842

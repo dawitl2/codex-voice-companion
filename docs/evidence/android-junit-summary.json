@@ -1,0 +1,10 @@
+{
+  "scope": "Historical private-development JUnit XML; no tests run for publication",
+  "report_files": 14,
+  "tests": 95,
+  "passed": 94,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 1,
+  "current_revision_certified": false
+}

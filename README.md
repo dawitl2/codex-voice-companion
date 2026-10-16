@@ -79,14 +79,20 @@ Setup is retained across ordinary app restarts and same-signature Android update
 
 A completed Codex turn means the turn finished; it is not a guarantee that its changes or commands succeeded. Explicit demo mode is simulated and keeps the microphone off.
 
-## Explore
+## Development and validation
+
+This repository preserves **70 genuine development commits** from the product's earlier private development, with personal metadata and private setup reports removed. The history shows the bridge, Android client, pairing, notifications, calls, local speech, conversation controls and desktop setup evolving over time. It is not an artificial break-and-fix reconstruction.
+
+Retained historical outputs show **150 bridge tests passed** and **94 Android unit tests passed, with one skipped case**, alongside separate native acceptance evidence. These results belong to earlier revisions. **No tests or device installations were performed for this publication.** See [historical validation evidence](docs/VALIDATION_HISTORY.md) for suite growth, discrepancies in written reports, failures and limitations.
+
+## Documentation
 
 - [Setup](docs/SETUP.md)
 - [Build from source](docs/BUILDING.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Security and privacy](docs/SECURITY_AND_PRIVACY.md)
-- [Contributing](CONTRIBUTING.md)
+- [Historical validation evidence](docs/VALIDATION_HISTORY.md)
 
 ## License
 
