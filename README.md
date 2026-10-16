@@ -1,3 +1,5 @@
+![Codex Voice — Call. Talk. Keep coding.](docs/assets/codex-voice-incoming-call-hero.png)
+
 # Codex Voice
 
 **Your Codex workspace, within reach.**
