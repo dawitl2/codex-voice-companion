@@ -40,6 +40,6 @@ import com.codexvoice.app.core.notifications.TaskNotifications
         TextButton(appSettings){Text(if(microphone)"Microphone · allowed" else "Microphone permission")}
         if(Build.VERSION.SDK_INT>=34)TextButton({context.startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,Uri.parse("package:${context.packageName}")))}){Text(if(fullScreen)"Full-screen calls · allowed" else "Allow full-screen calls")}
         TextButton({context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))}){Text(if(battery)"Background battery use · unrestricted" else "Allow background battery use")}
-        Text("Allow background battery use for Codex Voice and Tailscale. Android call controls handle incoming calls; Answer starts the microphone.",style=MaterialTheme.typography.bodySmall)
+        Text("Internet calls use Android's own-call integration; a Phone permission is not needed. Full-screen calls are a separate Android setting. While you use another app, Android may show an incoming-call banner. Answer starts the microphone.",style=MaterialTheme.typography.bodySmall)
     }
 }

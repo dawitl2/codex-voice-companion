@@ -18,8 +18,8 @@ fun CompanionBackdrop(modifier: Modifier = Modifier, content: @Composable BoxSco
     val dark = MaterialTheme.colorScheme.background.luminance() < .3f
     Box(modifier) {
         Canvas(Modifier.matchParentSize()) {
-            drawRect(if (dark) Color(0xFF0B0D14) else Color(0xFFFCFDFF))
-            val alpha = if (dark) .16f else .24f
+            drawRect(if (dark) Color(0xFF101114) else Color(0xFFF7F7FA))
+            val alpha = if (dark) .09f else .08f
             drawRect(Brush.radialGradient(listOf(Color(0xFF8DBBFF).copy(alpha), Color.Transparent), Offset(size.width * .1f, size.height * .56f), size.width * .95f))
             drawRect(Brush.radialGradient(listOf(Color(0xFFC69AFF).copy(alpha), Color.Transparent), Offset(size.width, size.height * .7f), size.width * .85f))
             drawRect(Brush.radialGradient(listOf(Color(0xFF9FE8F7).copy(alpha * .7f), Color.Transparent), Offset(size.width * .45f, size.height * .7f), size.width * .7f))

@@ -91,7 +91,10 @@ class VoipCallService:Service(){
         val identity=selection?.let{"${it.project} · ${it.label}"}?:thread?.let{"${it.project} · ${it.label}"}?:"Codex Voice"
         if(!incoming){startForeground(CallNotifications.ID,CallNotifications.ongoing(this,end,identity),ServiceInfo.FOREGROUND_SERVICE_TYPE_PHONE_CALL);return}
         val open=event?.let{TelecomRuntime.incomingIntent(this,it.eventId,false)}?:PendingIntent.getActivity(this,711,Intent(this,MainActivity::class.java),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val inApp=CallNotifications.visible.value
+        // A started activity can still be behind the keyguard. Keep the urgent
+        // call channel and full-screen intent available in that case.
+        val locked=getSystemService(KeyguardManager::class.java).isKeyguardLocked
+        val inApp=CallNotifications.visible.value&&!locked
         if(inApp)CallNotifications.quietChannel(this)
         val builder=NotificationCompat.Builder(this,if(inApp)CallNotifications.QUIET_CHANNEL else "codex_voip_calls").setSmallIcon(R.drawable.ic_launcher).setContentTitle(identity).setContentText("Incoming private call")
             .setContentIntent(open).setCategory(NotificationCompat.CATEGORY_CALL).setOngoing(true).setOnlyAlertOnce(true).setVisibility(NotificationCompat.VISIBILITY_PUBLIC).setSilent(inApp)

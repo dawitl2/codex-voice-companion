@@ -33,3 +33,10 @@ ggml-*.bin
 *.gguf
 *.wav
 *.flac
+
+# Local recordings and packaging outputs
+*.mp3
+*.m4a
+*.pcm
+*.p12
+*.pfx

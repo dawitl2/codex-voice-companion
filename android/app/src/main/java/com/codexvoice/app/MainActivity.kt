@@ -51,7 +51,13 @@ class MainActivity : ComponentActivity() {
             dashboardModel = dashboard
             androidx.compose.runtime.LaunchedEffect(dashboard) { intent.getStringExtra(TaskNotifications.EXTRA_EVENT)?.let(dashboard::openNotification);incomingAnswer?.let(dashboard::incomingAnswer);incomingAnswer=null }
             val live=runtime.calls.state.collectAsStateWithLifecycle().value
-            androidx.compose.runtime.LaunchedEffect(live.phase,live.serviceRunning){if(live.serviceRunning||live.phase in setOf(com.codexvoice.app.core.calls.LivePhase.ENDED,com.codexvoice.app.core.calls.LivePhase.DECLINED,com.codexvoice.app.core.calls.LivePhase.EXPIRED,com.codexvoice.app.core.calls.LivePhase.FAILED)){setShowWhenLocked(false);setTurnScreenOn(false)}}
+            androidx.compose.runtime.LaunchedEffect(live.phase) {
+                val ringing = live.phase == com.codexvoice.app.core.calls.LivePhase.OFFERED
+                setShowWhenLocked(ringing)
+                setTurnScreenOn(ringing)
+                if (ringing) window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
             CodexVoiceApp(dashboard)
         }
     }

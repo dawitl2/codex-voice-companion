@@ -30,7 +30,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
             }
         }
         item {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (state.demoMode) DemoBadge() else Text(if (state.remote?.snapshot?.mode == "mock") "PC BRIDGE MOCK · SIMULATED" else "PRIVATE PC MONITOR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -45,7 +45,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
                         state.remote?.snapshot?.let { Text("Last synchronized · ${formattedTime(it.syncedAt)}", style = MaterialTheme.typography.bodySmall) }
                         if (state.remote?.status != RemoteStatus.CONNECTED && state.remote?.snapshot != null) Text("Last known state · may be stale", color = MaterialTheme.colorScheme.error)
                         TextButton(onSettings) { Icon(Icons.Default.Settings,null,Modifier.size(20.dp));Spacer(Modifier.width(10.dp));Text("Connection settings");Spacer(Modifier.weight(1f));Icon(Icons.Default.ChevronRight,null) }
-                        if(state.remote?.enabled==true)TextButton(onStopAll,colors=ButtonDefaults.textButtonColors(contentColor=MaterialTheme.colorScheme.error)){Text("Stop all")}
+                        if(state.remote?.enabled==true)Button(onStopAll,modifier=Modifier.fillMaxWidth().height(48.dp),shape=RoundedCornerShape(12.dp),colors=ButtonDefaults.buttonColors(containerColor=Color(0xFFD9363E),contentColor=Color.White)){Icon(Icons.Default.Stop,null,Modifier.size(20.dp));Spacer(Modifier.width(8.dp));Text("Stop all")}
                         HorizontalDivider(color=MaterialTheme.colorScheme.outlineVariant.copy(alpha=.4f))
                         val selected=state.remote?.snapshot?.threads?.find{it.id==state.remote.snapshot?.selectedThreadId}
                         Row(Modifier.fillMaxWidth().clickable { choosing=true },verticalAlignment=Alignment.CenterVertically) {
@@ -63,7 +63,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
         }
         item { Eyebrow(if (state.demoMode) "Current task · sample" else "Current task") }
         if(!state.demoMode&&recentCalls.isNotEmpty())item {
-            Surface(Modifier.fillMaxWidth().clickable(onClick=onHistory),shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.surface.copy(alpha=.8f)) {
+            Surface(Modifier.fillMaxWidth().clickable(onClick=onHistory),shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surface.copy(alpha=.8f)) {
                 Row(Modifier.padding(16.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)) {
                     Icon(Icons.Default.Call,null,tint=Color(0xFF22BF91),modifier=Modifier.size(32.dp))
                     Column(Modifier.weight(1f)) { Text("Recent calls",style=MaterialTheme.typography.titleMedium);recentCalls.first().let { Text(it.status+" · "+java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(it.time)),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
@@ -73,7 +73,7 @@ fun DashboardScreen(state: DashboardState, reduceMotion: Boolean, onDemo: (CallR
         }
         item { state.current?.let { TaskCard(it, reduceMotion) } ?: EmptyState("No active task", "Ready when you are.") }
         if (state.demoMode) item {
-            Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Try a demo call", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     Text("Simulated · Microphone off", color = MaterialTheme.colorScheme.onPrimaryContainer)

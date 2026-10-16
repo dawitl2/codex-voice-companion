@@ -89,9 +89,9 @@ import kotlinx.coroutines.delay
                 LivePhase.OFFERED -> {
                     Text(when(state.offer?.kind) { "failed" -> "Task failed"; "approval" -> "Approval needs attention"; "interrupted" -> "Task interrupted"; "review" -> "Task update"; else -> "Task finished" },color=MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(if(compact) 100.dp else 180.dp))
-                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween) {
-                        CallControl("Answer",Icons.Default.Call,{ringer.close();onAnswer()},Color.White,Color(0xFF20BF60),description="Answer real audio call")
-                        CallControl("Decline",Icons.Default.CallEnd,{ringer.close();onDecline()},Color.White,Color(0xFFFF393E))
+                    Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceAround) {
+                        CallControl("Decline",Icons.Default.CallEnd,{ringer.close();onDecline()},Color(0xFFFF393E),Color.White)
+                        CallControl("Answer",Icons.Default.Call,{ringer.close();onAnswer()},Color(0xFF20BF60),Color.White,description="Answer real audio call")
                     }
                     Spacer(Modifier.height(20.dp))
                     TextButton({ringer.close();onResults()}){Text("View task results")}
@@ -105,7 +105,7 @@ import kotlinx.coroutines.delay
                 LivePhase.ACTIVE -> {
                     val proposal=conversation.proposal
                     val remaining=proposal?.countdownMs?.let { (it-(System.currentTimeMillis()-proposal.receivedAt)).coerceAtLeast(0) }
-                    Surface(shape=RoundedCornerShape(22.dp),color=MaterialTheme.colorScheme.surface.copy(alpha=.8f)) {
+                    Surface(shape=RoundedCornerShape(16.dp),color=MaterialTheme.colorScheme.surface.copy(alpha=.8f)) {
                         Row(Modifier.fillMaxWidth().padding(horizontal=18.dp,vertical=14.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
                             Column(Modifier.weight(1f)) {
                                 Text(if(proposal!=null) {if(remaining!=null) "You said · sending" else "Review instruction"} else if(speech.provisional!=null) "Live · provisional" else speechLabel(state.capturing,state.muted,speech),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -189,5 +189,6 @@ import kotlinx.coroutines.delay
             shape = CircleShape, colors = IconButtonDefaults.filledIconButtonColors(containerColor = background, contentColor = foreground)) {
             Icon(icon, null, Modifier.size(30.dp))
         }
+        Text(label,style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
